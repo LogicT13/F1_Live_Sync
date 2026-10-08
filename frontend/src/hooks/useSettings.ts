@@ -33,6 +33,7 @@ export interface ReplaySettings {
   showElevation: boolean;
   highContrast: boolean;
   showAllPanels: boolean;
+  language: 'es' | 'en';
 }
 
 const STORAGE_KEY = "f1replay_settings";
@@ -68,6 +69,7 @@ export const DEFAULTS: ReplaySettings = {
   showElevation: false,
   highContrast: false,
   showAllPanels: false,
+  language: 'es',
 };
 
 function loadSettings(): ReplaySettings {
@@ -93,13 +95,13 @@ export function useSettings() {
     }
   }, []);
 
-  const update = useCallback((key: keyof ReplaySettings, value: boolean) => {
+  const update = useCallback((key: keyof ReplaySettings, value: boolean | string) => {
     setSettings((prev) => {
       const next = { ...prev, [key]: value };
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
       } catch {}
-      if (key === "highContrast") {
+      if (key === "highContrast" && typeof value === 'boolean') {
         document.documentElement.classList.toggle("high-contrast", value);
       }
       return next;

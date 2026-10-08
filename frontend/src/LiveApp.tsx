@@ -5,27 +5,22 @@ import { useApi } from '@/hooks/useApi'
 import TrackCanvas from '@/components/TrackCanvas'
 import Leaderboard from '@/components/Leaderboard'
 import RCNotifications from '@/components/RCNotifications'
-import { Play, Pause, ChevronLeft } from 'lucide-react'
-
-const defaultSettings = {
-  showLeaderboard: true, showTeamAbbr: true, showTyreAge: true, showTyreType: true,
-  showPitStops: true, showTyreHistory: false, showGridChange: true, showBestLapTime: true,
-  showGapToLeader: true, showSessionTime: true, showDriverNames: false, showWeather: false,
-  showAirTemp: false, showTrackTemp: false, showHumidity: false, showWind: false,
-  showRainfall: false, showPitPrediction: false, showPitConfidence: false, showPitFreeAir: false,
-  showLastLapTime: true, showSectors: true, showLapNotifications: false, highlightClose: true,
-  useImperial: false, showTrackFlags: true, showCorners: true, showMarshalSectors: true,
-  showElevation: true, rcSound: true, highContrast: false, showAllPanels: false,
-}
+import SettingsModal from '@/components/SettingsModal'
+import { Play, Pause, ChevronLeft, Minus, Plus, Settings } from 'lucide-react'
+import { useSettings } from '@/hooks/useSettings'
+import { useTranslation } from '@/i18n'
 
 export default function LiveApp() {
   const { year, round, type } = useParams()
   const navigate = useNavigate()
+  const { settings, update } = useSettings()
+  const t = useTranslation(settings.language)
   
   const [delayInput, setDelayInput] = useState<string>("0")
   const [activeDelay, setActiveDelay] = useState<number>(0)
   const [isPaused, setIsPaused] = useState(false)
   const [selectedDrivers, setSelectedDrivers] = useState<string[]>([])
+  const [showSettings, setShowSettings] = useState(false)
   
   const { data: trackData } = useApi<any>(
     `/api/sessions/${year}/${round}/track?type=${type}`
@@ -34,9 +29,19 @@ export default function LiveApp() {
   const speed = isPaused ? 0 : 1
   const live = useLiveSocket(Number(year), Number(round), type || "R", speed, activeDelay)
 
-  const handleApplyDelay = () => {
-    const parsed = parseFloat(delayInput)
-    if (!isNaN(parsed)) setActiveDelay(parsed)
+  const handleApplyDelay = (override?: number) => {
+    const parsed = override !== undefined ? override : parseFloat(delayInput)
+    if (!isNaN(parsed)) {
+      setActiveDelay(parsed)
+      setDelayInput(parsed.toFixed(1))
+    }
+  }
+
+  const handleIncrementDelay = (amount: number) => {
+    const current = parseFloat(delayInput) || 0
+    const next = current + amount
+    setDelayInput(next.toFixed(1))
+    handleApplyDelay(next)
   }
 
   const handleDriverClick = (abbr: string) => {
@@ -62,25 +67,52 @@ export default function LiveApp() {
           </button>
           <h1 className="text-xl font-bold italic tracking-wider text-white">F1 LIVE<span className="text-f1-red">SYNC</span></h1>
           <span className="text-xs px-2 py-1 bg-green-500/20 text-green-400 rounded-full font-bold uppercase tracking-wide">
-            {live.connected ? "Connected" : "Connecting..."}
+            {live.connected ? t('connected') : t('connecting')}
           </span>
         </div>
         
         <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2 bg-black/40 p-2 rounded-lg border border-f1-border">
-            <label className="text-sm text-gray-400 font-medium">Delay (segundos):</label>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="p-2 hover:bg-gray-800 rounded-full transition-colors text-gray-400 hover:text-white"
+            title={t('settings')}
+          >
+            <Settings size={20} />
+          </button>
+          <div className="flex items-center gap-1 bg-black/40 p-1.5 rounded-lg border border-f1-border">
+            <label className="text-sm text-gray-400 font-medium mr-2 ml-1">{t('delay')}:</label>
+
+            <button
+              onClick={() => handleIncrementDelay(-0.1)}
+              className="p-1 hover:bg-gray-700 rounded transition-colors text-gray-300 hover:text-white"
+              title="-0.1s"
+            >
+              <Minus size={16} />
+            </button>
+
             <input 
               type="number" 
-              className="w-20 bg-transparent text-white font-mono text-center outline-none border-b border-gray-600 focus:border-f1-red px-1"
+              step="0.1"
+              className="w-16 bg-black/50 text-white font-mono text-center outline-none border border-gray-700 focus:border-f1-red rounded py-0.5 px-1"
               value={delayInput}
               onChange={(e) => setDelayInput(e.target.value)}
+              onBlur={() => handleApplyDelay()}
               onKeyDown={(e) => e.key === 'Enter' && handleApplyDelay()}
             />
-            <button 
-              onClick={handleApplyDelay}
-              className="ml-2 px-3 py-1 bg-gray-700 hover:bg-f1-red transition-colors rounded text-sm font-bold"
+
+            <button
+              onClick={() => handleIncrementDelay(0.1)}
+              className="p-1 hover:bg-gray-700 rounded transition-colors text-gray-300 hover:text-white"
+              title="+0.1s"
             >
-              Aplicar
+              <Plus size={16} />
+            </button>
+
+            <button 
+              onClick={() => handleApplyDelay()}
+              className="ml-1 px-3 py-1 bg-gray-700 hover:bg-f1-red transition-colors rounded text-sm font-bold"
+            >
+              {t('apply')}
             </button>
           </div>
 
@@ -91,7 +123,7 @@ export default function LiveApp() {
             }`}
           >
             {isPaused ? <Play size={18} fill="currentColor" /> : <Pause size={18} fill="currentColor" />}
-            {isPaused ? "REANUDAR" : "PAUSAR"}
+            {isPaused ? t('resume') : t('pause')}
           </button>
         </div>
       </div>
@@ -107,14 +139,14 @@ export default function LiveApp() {
               drivers={drivers}
               highlightedDrivers={selectedDrivers}
               onDriverClick={handleDriverClick}
-              settings={defaultSettings}
+              settings={settings}
               currentTime={live.frame?.timestamp || 0}
               isRace={type === "R" || type === "S"}
               isQualifying={type === "Q" || type === "SQ"}
             />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-500 italic">
-              Esperando datos de pilotos...
+              {t('waitingDrivers')}
             </div>
           )}
         </div>
@@ -135,11 +167,19 @@ export default function LiveApp() {
             />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-500 italic">
-              Cargando circuito...
+              {t('loadingTrack')}
             </div>
           )}
         </div>
       </div>
+
+      {showSettings && (
+        <SettingsModal
+          settings={settings}
+          update={update}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   )
 }
