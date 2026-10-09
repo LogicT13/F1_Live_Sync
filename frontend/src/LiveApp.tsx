@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useLiveSocket } from '@/hooks/useLiveSocket'
 import { useApi } from '@/hooks/useApi'
@@ -10,7 +10,7 @@ import RCNotifications from '@/components/RCNotifications'
 import SettingsModal from '@/components/SettingsModal'
 import { DigitalTimer } from '@/components/DigitalTimer'
 import Standings from '@/components/Standings'
-import { Play, Pause, ChevronLeft, Settings, ShieldAlert, FastForward, Rewind, Radio } from 'lucide-react'
+import { Play, Pause, ChevronLeft, Settings, ShieldAlert, FastForward, Rewind, Radio, MousePointerClick } from 'lucide-react'
 import { useSettings } from '@/hooks/useSettings'
 import { useTranslation } from '@/i18n'
 
@@ -29,6 +29,18 @@ export default function LiveApp() {
   const [sessionTargetDate, setSessionTargetDate] = useState<Date | null>(null)
   const [isFetchingEvent, setIsFetchingEvent] = useState(true)
   const [now, setNow] = useState(new Date())
+
+  // Control auto-hide UI
+  const [showControls, setShowControls] = useState(true)
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const resetControlsTimeout = () => {
+    setShowControls(true)
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
+    controlsTimeoutRef.current = setTimeout(() => {
+      setShowControls(false)
+    }, 3000)
+  }
 
   // Keep 'now' updated for the waiting room logic
   useEffect(() => {
@@ -79,12 +91,20 @@ export default function LiveApp() {
   const handleSkip = (seconds: number) => {
     // Skipping forward (+seconds) reduces the delay. Skipping backward increases it.
     setActiveDelay(prev => Math.max(0, prev - seconds))
+    live.send(JSON.stringify({ command: 'skip', seconds }))
   }
 
   const handleGoLive = () => {
     setActiveDelay(0)
     setPlaybackSpeed(1)
     setIsPaused(false)
+    live.send(JSON.stringify({ command: 'seek', time: live.totalTime }))
+  }
+
+  // Handle Scrubber Seek
+  const handleSeek = (time: number) => {
+    live.send(JSON.stringify({ command: 'seek', time }))
+    setActiveDelay(0)
   }
   
   // A race is considered finished if we are more than 4 hours past its start
@@ -105,8 +125,15 @@ export default function LiveApp() {
   const rotation = trackData?.rotation || 0
   const rcMessages = live.rcMessages || []
 
+  // Format time function for scrubber
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60)
+    const s = Math.floor(seconds % 60)
+    return `${m}:${s.toString().padStart(2, '0')}`
+  }
+
   return (
-    <div className="h-screen flex flex-col bg-[#0a0f1d] text-white overflow-hidden relative">
+    <div className="h-screen flex flex-col bg-[#0a0f1d] text-white overflow-hidden relative" onMouseMove={resetControlsTimeout}>
       
       {/* Dynamic Backgrounds */}
       <div className="absolute top-0 left-[-10%] w-[50vw] h-[50vw] bg-f1-red/5 rounded-full blur-[140px] pointer-events-none mix-blend-screen z-0"></div>
@@ -275,7 +302,31 @@ export default function LiveApp() {
 
       {/* Bottom Multimedia Control Bar */}
       {!isWaitingRoom && (
-        <div className="h-20 bg-black/40 backdrop-blur-2xl border-t border-white/10 flex items-center justify-between px-8 z-40 shrink-0">
+        <div className={`flex flex-col bg-black/40 backdrop-blur-2xl border-t border-white/10 z-40 shrink-0 transition-all duration-700 ${showControls ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0'}`}>
+
+          {/* Scrubber / Progress Bar */}
+          <div className="w-full h-2 bg-gray-800 relative group cursor-pointer" onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect()
+              const clickX = e.clientX - rect.left
+              const percent = Math.max(0, Math.min(1, clickX / rect.width))
+              handleSeek(percent * live.totalTime)
+          }}>
+            <div
+              className="absolute top-0 left-0 h-full bg-f1-red transition-all duration-300 pointer-events-none"
+              style={{ width: `${live.totalTime > 0 ? ((live.frame?.timestamp || 0) / live.totalTime) * 100 : 0}%` }}
+            />
+            {/* Hover Tooltip */}
+            <div className="opacity-0 group-hover:opacity-100 absolute -top-8 -translate-x-1/2 bg-black px-2 py-1 rounded text-xs pointer-events-none whitespace-nowrap hidden group-hover:block"
+                 style={{ left: `${live.totalTime > 0 ? ((live.frame?.timestamp || 0) / live.totalTime) * 100 : 0}%` }}>
+              {formatTime(live.frame?.timestamp || 0)} / {formatTime(live.totalTime || 0)}
+            </div>
+            {/* Scrubber Thumb */}
+            <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 bg-white rounded-full shadow-lg opacity-0 group-hover:opacity-100 scale-0 group-hover:scale-100 transition-all duration-200 pointer-events-none"
+                 style={{ left: `calc(${live.totalTime > 0 ? ((live.frame?.timestamp || 0) / live.totalTime) * 100 : 0}%)` }}
+            />
+          </div>
+
+          <div className="h-20 flex items-center justify-between px-8">
           
           <div className="flex items-center gap-4 w-1/3">
              <button
@@ -346,6 +397,7 @@ export default function LiveApp() {
             )}
           </div>
 
+        </div>
         </div>
       )}
 

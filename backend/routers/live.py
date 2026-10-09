@@ -134,20 +134,58 @@ class LiveSession:
         return self._state_manager.get_frame()
 
     def skip_forward(self, seconds: float):
-        """Skip forward in the replayer, processing all skipped messages instantly."""
-        if self._mode != "replayer" or not self._replayer:
+        """Skip forward (or backward) by a given number of seconds."""
+        if not self._replayer or not self._replayer._messages:
             return
-        replayer = self._replayer
-        current_ts = replayer.current_timestamp
+
+        current_ts = self._replayer._messages[self._replayer._current_index].timestamp
         target_ts = current_ts + seconds
-        # Process all messages between current and target through state manager
-        idx = replayer._current_index
-        while idx < len(replayer._messages) and replayer._messages[idx].timestamp < target_ts:
-            msg = replayer._messages[idx]
-            self._state_manager.process_message(msg.topic, msg.data, msg.timestamp)
-            idx += 1
-        replayer._current_index = idx
-        logger.info(f"Skipped forward {seconds}s: {current_ts:.1f}s -> {target_ts:.1f}s (idx {idx})")
+
+        self.seek(target_ts)
+
+    def seek(self, target_ts: float):
+        """Seek to an absolute timestamp in the replay."""
+        if not self._replayer or not self._replayer._messages:
+            return
+
+        replayer = self._replayer
+
+        # Binary search for the closest message to target_ts
+        lo, hi = 0, len(replayer._messages)
+        while lo < hi:
+            mid = (lo + hi) // 2
+            if replayer._messages[mid].timestamp < target_ts:
+                lo = mid + 1
+            else:
+                hi = mid
+        target_idx = lo
+
+        # If skipping forward, process through state manager.
+        # If skipping backward, we must rebuild the state from the beginning.
+        if target_idx > replayer._current_index:
+            idx = replayer._current_index
+            while idx < target_idx:
+                msg = replayer._messages[idx]
+                self._state_manager.process_message(msg.topic, msg.data, msg.timestamp)
+                idx += 1
+        else:
+            # Rebuilding state from scratch
+            self._state_manager.__init__(
+                self._state_manager._session_type,
+                self._state_manager._pit_loss_green,
+                self._state_manager._pit_loss_sc,
+                self._state_manager._pit_loss_vsc,
+                self._state_manager._track_norm,
+                [{"x": float(row[0]), "y": float(row[1])} for row in self._state_manager._track_xy] if self._state_manager._track_xy is not None else None,
+            )
+            idx = 0
+            while idx < target_idx:
+                msg = replayer._messages[idx]
+                self._state_manager.process_message(msg.topic, msg.data, msg.timestamp)
+                idx += 1
+
+        replayer._current_index = target_idx
+        logger.info(f"Seeked to {target_ts:.1f}s (idx {target_idx})")
 
     def add_client(self, ws: WebSocket):
         self.clients.append(ws)
@@ -312,9 +350,16 @@ async def live_websocket(
                     logger.debug(f"Live WS command: {raw}")
                     try:
                         cmd = __import__("json").loads(raw)
-                        if cmd.get("command") == "skip" and session:
-                            skip_seconds = float(cmd.get("seconds", 300))
-                            session.skip_forward(skip_seconds)
+                        if session:
+                            if cmd.get("command") == "skip":
+                                skip_seconds = float(cmd.get("seconds", 300))
+                                session.skip_forward(skip_seconds)
+                            elif cmd.get("command") == "seek":
+                                target_time = float(cmd.get("time", 0))
+                                if session._replayer and session._replayer._messages:
+                                    first_ts = session._replayer._messages[0].timestamp
+                                    session.seek(first_ts + target_time)
+
                     except Exception:
                         pass
             except WebSocketDisconnect:
