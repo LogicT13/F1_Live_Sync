@@ -155,12 +155,29 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
             return formatGap(drv.gap);
           })();
 
+          // Map team color for hover borders
+          const teamBorderColor = (() => {
+            const teams: Record<string, string> = {
+              "Red Bull Racing": "border-l-blue-700",
+              "Ferrari": "border-l-red-600",
+              "Mercedes": "border-l-teal-400",
+              "McLaren": "border-l-orange-500",
+              "Aston Martin": "border-l-green-700",
+              "Williams": "border-l-blue-500",
+              "Haas F1 Team": "border-l-gray-100",
+              "Kick Sauber": "border-l-green-500",
+              "Alpine": "border-l-pink-500",
+              "RB": "border-l-blue-400"
+            };
+            return teams[drv.team] || "border-l-gray-500";
+          })();
+
           return (
             <button
               key={drv.abbr}
               onClick={() => onDriverClick(drv.abbr)}
-              className={`w-full flex items-center px-1 sm:px-2 py-1 hover:bg-white/5 transition-colors text-left ${
-                isHighlighted ? "bg-white/10" : ""
+              className={`w-full flex items-center px-1 sm:px-2 py-1 transition-all duration-200 ease-out text-left border-l-[3px] border-transparent hover:bg-white/5 hover:${teamBorderColor} ${
+                isHighlighted ? `bg-white/10 ${teamBorderColor}` : ""
               } ${drv.no_timing ? "opacity-40" : drv.knocked_out ? "opacity-50" : ""}`}
             >
               {/* Position - 20px mobile, 24px desktop */}
@@ -188,8 +205,18 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
               )}
 
               {/* Driver abbreviation - 30px */}
-              <span className="w-[30px] text-sm font-extrabold text-white flex-shrink-0">
+              <span className="w-[30px] flex items-center gap-1 text-sm font-extrabold text-white flex-shrink-0">
                 {drv.abbr}
+                {drv.flag === "investigation" && (
+                  <span className="w-3 h-3 bg-yellow-400 rounded-full flex items-center justify-center text-black text-[8px] font-bold" title="Bajo investigación">
+                    !
+                  </span>
+                )}
+                {drv.flag === "penalty" && (
+                  <span className="w-3 h-3 bg-red-600 rounded-full flex items-center justify-center text-white text-[8px] font-bold" title="Penalización">
+                    P
+                  </span>
+                )}
               </span>
 
               {/* Pit indicator (non-race only) */}
@@ -337,9 +364,25 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
 
               {/* Pit stops / chequered flag - 20px (race only) */}
               {isRace && settings.showPitStops && (
-                <span className="w-5 flex-shrink-0 flex items-center justify-center ml-1" title={drv.finished ? "Finished" : "Pit stops"}>
+                <span className="w-8 flex-shrink-0 flex items-center justify-center ml-1" title={drv.finished ? "Finished" : "Pit stops"}>
                   {drv.finished ? (
                     <img src="/chequered-flag.png" alt="Finished" className="w-5 h-5 object-contain" />
+                  ) : drv.tyre_history && drv.tyre_history.length > 1 ? (
+                    <div className="flex -space-x-1">
+                      {drv.tyre_history.slice(0, 3).map((comp, idx) => {
+                        const hColor = TYRE_COLORS[comp] || "#888";
+                        const hLabel = TYRE_SHORT[comp] || "?";
+                        return (
+                          <span
+                            key={idx}
+                            className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold leading-none border bg-black z-10"
+                            style={{ borderColor: hColor, color: hColor }}
+                          >
+                            {hLabel}
+                          </span>
+                        );
+                      })}
+                    </div>
                   ) : drv.pit_stops > 0 ? (
                     <span className="w-5 h-5 border border-f1-muted rounded-sm flex items-center justify-center text-[10px] font-extrabold text-white">
                       {drv.pit_stops}

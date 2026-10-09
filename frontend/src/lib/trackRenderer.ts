@@ -92,6 +92,7 @@ export function drawTrack(
   marshalSectors?: MarshalSector[] | null,
   sectorFlags?: SectorFlag[] | null,
   showElevation: boolean = false,
+  transform: {x: number, y: number, k: number} = {x: 0, y: 0, k: 1}
 ) {
   if (points.length === 0) return;
 
@@ -140,10 +141,9 @@ export function drawTrack(
   const offsetY = padTop + (h - rangeY * scale) / 2;
 
   function toScreen(p: TrackPoint): [number, number] {
-    return [
-      offsetX + (p.x - minX) * scale,
-      offsetY + (maxY - p.y) * scale, // Flip Y: data Y-up → screen Y-down
-    ];
+    const baseX = offsetX + (p.x - minX) * scale;
+    const baseY = offsetY + (maxY - p.y) * scale;
+    return [transform.x + baseX * transform.k, transform.y + baseY * transform.k];
   }
 
   // Draw track outline. Priority: elevation > sector overlay > plain.
@@ -302,6 +302,79 @@ export function drawTrack(
     }
   }
 
+  // Highlight active marshal sectors on the track
+  if (marshalSectors && sectorFlags && sectorFlags.length > 0) {
+    const sectorIndices = marshalSectors.map((ms) => {
+      const dx = ms.x - cx;
+      const dy = ms.y - cy;
+      const mx = dx * cos - dy * sin + cx;
+      const my = dx * sin + dy * cos + cy;
+      let minDist = Infinity;
+      let minIdx = 0;
+      for (let i = 0; i < rotated.length; i++) {
+        const dist = Math.hypot(rotated[i].x - mx, rotated[i].y - my);
+        if (dist < minDist) {
+          minDist = dist;
+          minIdx = i;
+        }
+      }
+      return { number: ms.number, idx: minIdx };
+    }).sort((a, b) => a.idx - b.idx);
+
+    const flagLookup = new Map<number, SectorFlag>();
+    for (const sf of sectorFlags) {
+      flagLookup.set(sf.sector, sf);
+    }
+
+    ctx.lineWidth = 12;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    for (let i = 0; i < sectorIndices.length; i++) {
+      const current = sectorIndices[i];
+      const next = sectorIndices[(i + 1) % sectorIndices.length];
+      const sf = flagLookup.get(current.number);
+      
+      if (sf && (sf.flag.includes("YELLOW") || sf.flag === "RED")) {
+        ctx.beginPath();
+        if (sf.flag.includes("YELLOW")) {
+          ctx.strokeStyle = "#F5C518";
+          ctx.shadowColor = "#F5C518";
+        } else {
+          ctx.strokeStyle = "#E10600";
+          ctx.shadowColor = "#E10600";
+        }
+        ctx.shadowBlur = 12;
+
+        const startIdx = current.idx;
+        const endIdx = next.idx;
+
+        const drawSegment = (start: number, end: number) => {
+            const [sx, sy] = toScreen(rotated[start]);
+            ctx.moveTo(sx, sy);
+            for (let j = start + 1; j <= end; j++) {
+                const [px, py] = toScreen(rotated[j]);
+                ctx.lineTo(px, py);
+            }
+        };
+
+        if (endIdx < startIdx) {
+            drawSegment(startIdx, rotated.length - 1);
+            const [zx, zy] = toScreen(rotated[0]);
+            ctx.lineTo(zx, zy);
+            for (let j = 1; j <= endIdx; j++) {
+                const [px, py] = toScreen(rotated[j]);
+                ctx.lineTo(px, py);
+            }
+        } else {
+            drawSegment(startIdx, endIdx);
+        }
+        ctx.stroke();
+      }
+    }
+    ctx.shadowBlur = 0;
+  }
+
   // Marshal sector flag indicators
   if (marshalSectors && sectorFlags && sectorFlags.length > 0) {
     const flagLookup = new Map<number, SectorFlag>();
@@ -369,6 +442,7 @@ export function drawDrivers(
   rotation: number,
   highlightedDrivers: string[],
   showNames: boolean = true,
+  transform: {x: number, y: number, k: number} = {x: 0, y: 0, k: 1}
 ) {
   if (trackPoints.length === 0) return;
 
@@ -411,8 +485,10 @@ export function drawDrivers(
     const rx = dx * cos - dy * sin + cx;
     const ry = dx * sin + dy * cos + cy;
 
-    const sx = offsetX + (rx - minX) * scale;
-    const sy = offsetY + (maxY - ry) * scale; // Flip Y: data Y-up → screen Y-down
+    const baseX = offsetX + (rx - minX) * scale;
+    const baseY = offsetY + (maxY - ry) * scale;
+    const sx = transform.x + baseX * transform.k;
+    const sy = transform.y + baseY * transform.k;
 
     const isHighlighted = highlightedDrivers.includes(drv.abbr);
     const radius = isHighlighted ? 8 : 5;

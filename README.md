@@ -1,71 +1,57 @@
-# F1 Live Sync
+# F1 LiveSync
 
-¡Tu compañero perfecto para disfrutar de la Fórmula 1! Esta aplicación (React + FastAPI) te permite visualizar la telemetría de la F1 en vivo y, lo más importante, **sincronizarla a la perfección con tu transmisión de video** (Disney+, Fox Sports, DAZN, F1TV, etc.).
+El objetivo de este proyecto es crear un **Pit Wall personal** para ver telemetría de Fórmula 1 en tiempo real, sincronizable manualmente con la transmisión de TV mediante controles de delay y pausa.
 
-## 🏎️ Características Principales
+## ⚠️ Reglas de Operación Estrictas (Tolerancia Cero)
+1. **PROHIBIDO MODIFICAR MÚLTIPLES SUBSISTEMAS A LA VEZ:** Se trabajará estrictamente en fases ordenadas. No se pasará a la siguiente fase sin que la anterior esté testeada y confirmada.
+2. **PROHIBIDO AFIRMAR QUE ALGO FUNCIONA SIN VALIDAR:** No se dará nada por solucionado sin haber probado el código, revisado los logs y verificado que cumple el objetivo. Si algo requiere validación visual manual, se declarará explícitamente.
+3. **CRITERIO DE UX REALISTA:** No se agregarán elementos estáticos inútiles (como carteles permanentes de "Bandera: No"). La interfaz debe ser reactiva por eventos (toasts temporales, tooltips animados e indicadores contextuales).
+4. **PREGUNTAR ANTES DE ROMPER:** Ante cualquier duda conceptual, arquitectónica o de diseño ambiguo, se presentará la duda puntualmente antes de implementar código parche.
 
-1. **Sincronización Precisa tipo VLC:**
-   - Control total sobre el "delay" de los datos. Puedes usar botones de `+` y `-` para ajustar el tiempo en incrementos de **0.1 segundos**, o escribir los segundos exactos.
-   - Botón de **Play / Pausa** para congelar la telemetría hasta que tu video alcance la transmisión de los datos.
+## 🏠 Especificación de la Home (Menú Principal)
+- **Estética:** Moderna, sobria y premium con fondo azul marino oscuro (`#0a0f1d`).
+- **Calendario oficial de la temporada:**
+  - **Carreras pasadas:** Visualmente atenuadas / apagadas (opacidad reducida).
+  - **Próxima carrera:** Destacada con cuenta regresiva en vivo (T- [días, horas, mins, segs]) con tipografía nítida y moderna (sin FlipClocks toscos).
+  - **Carreras futuras:** Listado limpio con sus fechas correspondientes.
+- **Miniaturas de trazados:** Cada circuito debe renderizar su silueta vectorial limpia sin errores de carga.
+- **Pestañas de campeonato:** Pilotos y Constructores, y sección de comparativa H2H (Versus libre) *(a mejorar en el futuro)*.
 
-2. **Panel de Control Personalizable:**
-   - Menú de configuraciones (⚙️) que te permite elegir exactamente qué información mostrar u ocultar en pantalla (Gaps, Tiempos, Neumáticos, Paradas en Boxes, etc.).
-   - Interfaz moderna, limpia, y completamente configurable a tu gusto.
+## 📡 Fuentes de Datos (APIs)
+- **Telemetría en Vivo:** Conexión mediante WebSocket al backend de FastAPI, alimentado por el feed oficial de F1 SignalR (Live Timing).
+- **Datos Históricos y Sesiones Pasadas:** Consumo vía FastF1 / OpenF1.
+- **POLÍTICA DE DATOS ESTRICTA:** Queda terminantemente prohibido generar datos simulados (mock data). Si una sesión no arrancó, o la API no provee compuestos de neumáticos o telemetría, o si provee erróneamente datos antes de que la sesión inicie, los campos deben mostrarse vacíos o con guiones ("--").
 
-3. **Multilingüe:**
-   - Interfaz disponible tanto en **Español** (predeterminado) como en **Inglés**.
+## 🏁 Refinamiento de la Sala de Sesión y Vista en Vivo
+*Aclaración: Si una sesión está en vivo, no se mostrará como "replay".*
 
-4. **Layout Optimizado:**
-   - **Izquierda:** Tabla de posiciones (Leaderboard) detallada con la información que elijas ver.
-   - **Derecha:** Mapa del circuito (Track Canvas) mostrando la posición de los pilotos en tiempo real.
+1. **Acceso a la Sala:**
+   - Se puede ingresar a la pantalla del circuito en cualquier momento (sin límite de tiempo de 15 minutos). Muestra el trazado y la información estática del circuito hasta que inicie la telemetría oficial.
 
-5. **Notificaciones de Dirección de Carrera (Race Control):**
-   - Avisos en tiempo real sobre Banderas Amarillas, Banderas Rojas, Investigaciones y Sanciones directamente en la pantalla.
+2. **Leaderboard Dinámico y Navegación del Circuito:**
+   - **Leaderboard:** Ubicado a la izquierda por defecto, pero desacoplable (draggable) para reposicionarlo en la pantalla.
+   - **Track Map (Pan & Zoom):** El mapa del circuito soporta Zoom In / Zoom Out fluido con la rueda del ratón y paneo (arrastre) manteniendo presionado el clic izquierdo.
+   - **Puntos de Pilotos:** Durante las sesiones (en tiempo real) y replays, en el circuito se ven los puntos de los pilotos distinguidos con los colores de sus escuderías y sus respectivos números.
 
-## 🛠️ Tecnologías (Stack)
+3. **Overtake Mode (OM) y Segmentación de Pista:**
+   - **Zonas OM:** Posibilidad de elegir con Toggle ver zonas de Overtake Mode (identificación clara de tramos de activación y detección).
+   - **Marshal Sectors reactivos:** El trazado se ve continuo y limpio, pero mantiene una división vectorial interna por Marshal Sectors. Al emitirse una bandera amarilla en un puesto de comisario, ese segmento puntual se ilumina en amarillo brillante en el mapa sin alterar el resto de la pista.
 
-- **Frontend:** React + Vite + Tailwind CSS.
-- **Backend:** Python + FastAPI + websockets.
-- **Data Source:** Servidores oficiales de SignalR de F1.
+4. **Barra de Reproducción y Sincronización (Timeline Player):**
+   - **Barra de control multimedia inferior MODERNA:**
+     - Botón Play / Pausa funcional para pausar el flujo de datos.
+     - Botones de salto rápido modernos: `-5s` y `+5s` para ajustar el desfase con la TV.
+     - Indicador "LIVE" (punto con pulso, moderno) para saltar inmediatamente al flujo de datos en directo.
+     - Selector de velocidad moderno (ventana para elegir: `x0.5`, `x1`, `x2`, `x4`, `x8`) habilitado al reproducir carreras finalizadas.
 
-## 🚀 Cómo Ejecutar (Windows)
+5. **Estética y Microinteracciones:**
+   - **Paleta:** Fondo azul marino profundo (`#0a0f1d`), acentos en rojo F1, paneles dark glassmorphism (translucidez y blur) y bordes redondeados (`rounded-xl/2xl`).
+   - **Animaciones:** Notificaciones flotantes de banderas (amarillas, rojas), investigaciones a corredores y penalizaciones usando toasts modernas y tooltips con transiciones suaves (fade-in, scale y easing cúbico) con feedback visual claro en cada hover.
 
-No se requiere Docker ni instalaciones complejas.
+## 🛠 Tecnologías (Stack)
+- **Frontend:** React + Vite + Tailwind CSS + D3.
+- **Backend:** Python + FastAPI + websockets + FastF1 / OpenF1.
 
+## 🏃 Cómo Ejecutar (Windows)
 1. Haz doble clic en el archivo `Iniciar_F1LiveSync.bat`.
-2. El script de forma automática:
-   - Creará un entorno virtual de Python (`venv`).
-   - Instalará todas las dependencias necesarias.
-   - Iniciará el Backend y el Frontend en tu navegador.
-3. Disfruta de la carrera en `http://localhost:5173`.
-
----
-
-# F1 Live Sync (English)
-
-Your perfect companion for Formula 1! This application (React + FastAPI) allows you to view live F1 telemetry and, most importantly, **synchronize it perfectly with your video broadcast** (Disney+, Fox Sports, DAZN, F1TV, etc.).
-
-## 🏎️ Main Features
-
-1. **VLC-style Precise Synchronization:**
-   - Total control over the data "delay". Use `+` and `-` buttons to adjust the time in **0.1 second** increments, or type the exact seconds.
-   - **Play / Pause** button to freeze telemetry until your video catches up with the data feed.
-
-2. **Customizable Dashboard:**
-   - Settings menu (⚙️) allows you to choose exactly what information to display or hide on the screen (Gaps, Times, Tyres, Pit Stops, etc.).
-   - Modern, clean interface, fully configurable to your liking.
-
-3. **Multilingual:**
-   - Interface available in both **Spanish** (default) and **English**.
-
-4. **Optimized Layout:**
-   - **Left:** Detailed Leaderboard with the information you choose to see.
-   - **Right:** Track Canvas showing drivers' positions in real-time.
-
-5. **Race Control Notifications:**
-   - Real-time alerts for Yellow Flags, Red Flags, Investigations, and Penalties directly on screen.
-
-## 🚀 How to Run (Windows)
-
-1. Simply double-click the `Iniciar_F1LiveSync.bat` file.
-2. The script will automatically handle the setup and open your browser at `http://localhost:5173`.
+2. Disfruta de la experiencia en `http://localhost:5173`.

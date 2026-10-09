@@ -1,0 +1,27 @@
+{
+  "name": "f1_app",
+  "version": "1.0.0",
+  "description": "\u00c2\u00a1Tu compa\u00c3\u00b1ero perfecto para disfrutar de la F\u00c3\u00b3rmula 1! Esta aplicaci\u00c3\u00b3n (React + FastAPI) te permite visualizar la telemetr\u00c3\u00ada de la F1 en vivo y, lo m\u00c3\u00a1s importante, **sincronizarla a la perfecci\u00c3\u00b3n con tu transmisi\u00c3\u00b3n de video** (Disney+, Fox Sports, DAZN, F1TV, etc.).",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "concurrently \"npm run dev --prefix frontend\" \"cd backend && venv\\Scripts\\python -m uvicorn main:app --port 8000 --reload\""
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LogicT13/F1_Live_Sync.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/LogicT13/F1_Live_Sync/issues"
+  },
+  "homepage": "https://github.com/LogicT13/F1_Live_Sync#readme",
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}
+
+
