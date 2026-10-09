@@ -10,6 +10,7 @@ import RCNotifications from '@/components/RCNotifications'
 import SettingsModal from '@/components/SettingsModal'
 import { DigitalTimer } from '@/components/DigitalTimer'
 import Standings from '@/components/Standings'
+import MicrosectorsBar from '@/components/MicrosectorsBar'
 import { Play, Pause, ChevronLeft, Settings, ShieldAlert, FastForward, Rewind, Radio, MousePointerClick } from 'lucide-react'
 import { useSettings } from '@/hooks/useSettings'
 import { useTranslation } from '@/i18n'
@@ -291,6 +292,12 @@ export default function LiveApp() {
                 {t('loadingTrack')}
               </div>
             )}
+
+            {/* Microsectors Overlay */}
+            <MicrosectorsBar
+              driver={selectedDrivers.length === 1 ? drivers.find(d => d.abbr === selectedDrivers[0]) || null : null}
+              isVisible={(type === "Q" || type === "SQ") && selectedDrivers.length === 1}
+            />
 
             {/* Notifications Layer */}
             <div className="absolute top-4 right-4 pointer-events-none z-50">
