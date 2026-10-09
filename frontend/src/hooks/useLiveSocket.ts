@@ -10,6 +10,7 @@ interface LiveState {
   connected: boolean;
   ready: boolean;
   loading: boolean;
+  totalTime: number;
   frame: ReplayFrame | null;
   rcMessages: RCMessage[];
   finished: boolean;
@@ -40,6 +41,7 @@ export function useLiveSocket(
     connected: false,
     ready: false,
     loading: true,
+    totalTime: 0,
     frame: null,
     rcMessages: [],
     finished: false,
@@ -111,6 +113,7 @@ export function useLiveSocket(
             ...s,
             ready: true,
             loading: false,
+            totalTime: msg.total_time || 0,
           }));
           break;
         case "frame": {
