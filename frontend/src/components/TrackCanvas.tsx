@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useEffect } from "react";
+import * as d3 from "d3-zoom";
+import { select } from "d3-selection";
 import { drawTrack, drawDrivers, TrackPoint, DriverMarker, SectorOverlay, Corner, MarshalSector, SectorFlag, ELEVATION_FULL_SCALE_M } from "@/lib/trackRenderer";
 
 interface Props {
@@ -45,6 +47,7 @@ export default function TrackCanvas({ trackPoints, rotation, trackStatus = "gree
   const posRef = useRef<Map<string, PosEntry>>(new Map());
   const driversRef = useRef<DriverMarker[]>([]);
   const trackStatusRef = useRef(trackStatus);
+  const transformRef = useRef({x: 0, y: 0, k: 1});
   trackStatusRef.current = trackStatus;
   const speedRef = useRef(playbackSpeed);
   speedRef.current = playbackSpeed;
@@ -128,7 +131,7 @@ export default function TrackCanvas({ trackPoints, rotation, trackStatus = "gree
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      drawTrack(ctx, trackPoints, w, h, rotation, trackStatusRef.current, sectorOverlayRef.current, cornersRef.current, marshalSectorsRef.current, sectorFlagsRef.current, showElevationRef.current);
+      drawTrack(ctx, trackPoints, w, h, rotation, trackStatusRef.current, sectorOverlayRef.current, cornersRef.current, marshalSectorsRef.current, sectorFlagsRef.current, showElevationRef.current, transformRef.current);
 
       const now = performance.now();
       const curr = driversRef.current;
@@ -144,7 +147,7 @@ export default function TrackCanvas({ trackPoints, rotation, trackStatus = "gree
         return { ...drv, x, y };
       });
 
-      drawDrivers(ctx, interpolated, trackPoints, w, h, rotation, highlightedDrivers, showNamesRef.current);
+      drawDrivers(ctx, interpolated, trackPoints, w, h, rotation, highlightedDrivers, showNamesRef.current, transformRef.current);
 
       hostWindow.requestAnimationFrame(animate);
     }
@@ -174,11 +177,29 @@ export default function TrackCanvas({ trackPoints, rotation, trackStatus = "gree
     return () => observer.disconnect();
   }, []);
 
+  // Set up Pan & Zoom
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const zoomBehavior = d3.zoom<HTMLCanvasElement, unknown>()
+      .scaleExtent([0.5, 10]) // Limit zooming out to 0.5x, zooming in to 10x
+      .on("zoom", (e) => {
+        transformRef.current = e.transform;
+      });
+
+    select(canvas).call(zoomBehavior as any);
+
+    return () => {
+      select(canvas).on(".zoom", null);
+    };
+  }, []);
+
   const showElevationLegend = showElevation && trackPoints.some((p) => typeof p.z === "number");
 
   return (
     <div ref={containerRef} className="w-full h-full bg-f1-dark relative">
-      <canvas ref={canvasRef} className="w-full h-full" />
+      <canvas ref={canvasRef} className="w-full h-full cursor-grab active:cursor-grabbing" />
       {showElevationLegend && (
         <div className="absolute bottom-16 left-3 flex items-end gap-2 pointer-events-none select-none">
           <div className="flex flex-col items-center">
@@ -199,3 +220,4 @@ export default function TrackCanvas({ trackPoints, rotation, trackStatus = "gree
     </div>
   );
 }
+

@@ -12,11 +12,11 @@ export default function RCNotifications({ messages, currentTime }: RCNotificatio
   const [activeMessages, setActiveMessages] = useState<RCMessage[]>([]);
 
   useEffect(() => {
-    // Solo mostramos los mensajes recientes (ej. últimos 60 segundos de sesión o mensajes no resueltos)
-    // Pero como F1LiveSync quiere ver notificaciones "momentáneas", vamos a mostrar las últimas 5 o las de los últimos 2 minutos.
-    
-    // Filtramos para obtener las últimas 5.
-    const recent = [...messages].reverse().slice(0, 5);
+    // Only show messages from the last 20 seconds of session time, up to 5 at a time
+    const recent = [...messages]
+      .reverse()
+      .filter(msg => currentTime - msg.timestamp <= 20 && currentTime >= msg.timestamp)
+      .slice(0, 5);
     setActiveMessages(recent);
   }, [messages, currentTime]);
 

@@ -184,9 +184,35 @@ def _sanitize_frame(frame: dict) -> dict:
 def _get_frames_sync(year: int, round_num: int, session_type: str) -> list[dict]:
     key = f"{year}_{round_num}_{session_type}"
     if key not in _replay_cache:
+        from services.storage import get_json
         frames = get_json(f"sessions/{year}/{round_num}/{session_type}/replay.json")
+        
+        # Fallback to a previous year for the same location
+        if frames is None:
+            schedule = get_json(f"seasons/{year}/schedule.json")
+            if schedule:
+                events = schedule.get("events", [])
+                if 0 < round_num <= len(events):
+                    target_location = events[round_num - 1].get("location")
+                    if target_location:
+                        for prev_year in range(year - 1, year - 4, -1):
+                            prev_schedule = get_json(f"seasons/{prev_year}/schedule.json")
+                            if not prev_schedule:
+                                continue
+                            for prev_event in prev_schedule.get("events", []):
+                                if prev_event.get("location") == target_location:
+                                    prev_round = prev_event.get("round_number")
+                                    fallback_frames = get_json(f"sessions/{prev_year}/{prev_round}/{session_type}/replay.json")
+                                    if fallback_frames is not None:
+                                        frames = fallback_frames
+                                        logger.info(f"Replay fallback: using {prev_year}/{prev_round}/{session_type} for {year}/{round_num}/{session_type}")
+                                        break
+                            if frames is not None:
+                                break
+
         if frames is None:
             frames = []
+            
         for f in frames:
             _sanitize_frame(f)
         _replay_cache[key] = frames

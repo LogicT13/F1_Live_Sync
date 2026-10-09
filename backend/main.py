@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 
 from auth import is_auth_enabled, verify_token
 from routers import sessions, track, laps, results, replay, telemetry, sync, live, live_status
@@ -50,6 +51,14 @@ app = FastAPI(
     description="Formula 1 race replay and telemetry data API",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Auth middleware (skip auth endpoints, health, and WebSocket upgrades)
