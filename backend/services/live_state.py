@@ -91,6 +91,7 @@ class _DriverState:
         "no_timing",
         "grid_position",
         "sectors",
+        "segments",
         "pit_prediction",
         "pit_prediction_margin",
         "pit_prediction_free_air",
@@ -129,6 +130,7 @@ class _DriverState:
         self.no_timing: bool = False
         self.grid_position: int | None = None
         self.sectors: list[dict[str, Any]] | None = None
+        self.segments: list[dict[str, Any]] | None = None
         self.pit_prediction: int | None = None
         self.pit_prediction_margin: float | None = None
         self.pit_prediction_free_air: float | None = None
@@ -395,14 +397,7 @@ class LiveStateManager:
                 drv.no_timing = False
 
     def _process_sectors(self, drv: _DriverState, sectors: dict) -> None:
-        """Update sector colour indicators for a driver.
-
-        Only updates when a sector has an actual Value (completed time).
-        When sector N completes, clears all sectors after N (new flying
-        lap progress). Computes colours from actual times rather than
-        trusting API flags, ensuring only one driver can be purple per sector.
-        """
-        # Build lookup of existing sectors
+        """Update sector and segment colour indicators for a driver."""
         existing: dict[int, dict[str, Any]] = {}
         if drv.sectors:
             for s in drv.sectors:
@@ -417,60 +412,81 @@ class LiveStateManager:
                 continue
             sector_num = sector_idx + 1  # 0-based -> 1-based
 
+            # 1. Parse Segments EVEN IF the sector is not finished (no Value)
+            segments_raw = sector_data.get("Segments", {})
+            if isinstance(segments_raw, list):
+                segments_raw = {str(i): v for i, v in enumerate(segments_raw) if isinstance(v, dict)}
+
+            parsed_segments = []
+            if isinstance(segments_raw, dict) and segments_raw:
+                for seg_idx_str, seg_data in sorted(segments_raw.items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0):
+                    if not isinstance(seg_data, dict):
+                        continue
+                    status = seg_data.get("Status", 0)
+                    seg_color = "grey"
+                    if status in (2051, 2052):
+                        seg_color = "purple"
+                    elif status == 2049:
+                        seg_color = "green"
+                    elif status == 2048:
+                        seg_color = "yellow"
+                    parsed_segments.append({"status": status, "color": seg_color})
+
+            # Update existing segments if we got new ones
+            if parsed_segments:
+                if sector_num not in existing:
+                    existing[sector_num] = {"num": sector_num, "color": "grey", "segments": []}
+                # Keep old segments if the new payload only has partial data, or replace entirely
+                existing[sector_num]["segments"] = parsed_segments
+
+            # 2. Parse Sector Value if completed
             val_str = sector_data.get("Value", "")
+            if val_str:
+                try:
+                    sec_time = float(val_str)
 
-            # Only process sectors that have an actual completed time
-            if not val_str:
-                continue
+                    drv._sector_times[sector_idx] = sec_time
 
-            # Parse sector time
-            try:
-                sec_time = float(val_str)
-            except ValueError:
-                continue
+                    current_pb = drv._sector_best_personal.get(sector_idx)
+                    is_personal_best = current_pb is None or sec_time <= current_pb + 0.0005
+                    if current_pb is None or sec_time < current_pb:
+                        drv._sector_best_personal[sector_idx] = sec_time
 
-            # Store the sector time for later recomputation
-            drv._sector_times[sector_idx] = sec_time
+                    current_ob = self._overall_sector_bests.get(sector_idx)
+                    is_overall_best = current_ob is None or sec_time <= current_ob + 0.0005
+                    if current_ob is None or sec_time < current_ob:
+                        self._overall_sector_bests[sector_idx] = sec_time
+                        self._recompute_sector_colours(sector_idx, drv.racing_number)
 
-            # Track personal bests
-            current_pb = drv._sector_best_personal.get(sector_idx)
-            is_personal_best = current_pb is None or sec_time <= current_pb + 0.0005
-            if current_pb is None or sec_time < current_pb:
-                drv._sector_best_personal[sector_idx] = sec_time
+                    if is_overall_best:
+                        color = "purple"
+                    elif is_personal_best:
+                        color = "green"
+                    else:
+                        color = "yellow"
 
-            # Track overall bests — if this is a new overall best, update
-            # all other drivers' sectors to remove stale purples
-            current_ob = self._overall_sector_bests.get(sector_idx)
-            is_overall_best = current_ob is None or sec_time <= current_ob + 0.0005
-            if current_ob is None or sec_time < current_ob:
-                self._overall_sector_bests[sector_idx] = sec_time
-                # Downgrade other drivers' purple in this sector
-                self._recompute_sector_colours(sector_idx, drv.racing_number)
+                    if sector_num not in existing:
+                        existing[sector_num] = {"num": sector_num, "color": color, "segments": parsed_segments}
+                    else:
+                        existing[sector_num]["color"] = color
 
-            # Determine colour from actual times
-            if is_overall_best:
-                color = "purple"
-            elif is_personal_best:
-                color = "green"
-            else:
-                color = "yellow"
+                    # Clear any sectors after this one (new lap progress)
+                    for later in list(existing):
+                        if later > sector_num:
+                            del existing[later]
+                            drv._sector_times.pop(later - 1, None)
 
-            existing[sector_num] = {"num": sector_num, "color": color}
+                    if sector_num == 3:
+                        drv._s3_complete_time = time.monotonic()
+                    elif sector_num == 1:
+                        drv._s3_complete_time = None
 
-            # Clear any sectors after this one (new lap progress)
-            for later in list(existing):
-                if later > sector_num:
-                    del existing[later]
-                    drv._sector_times.pop(later - 1, None)
-
-            # Track S3 completion for 5-second linger
-            if sector_num == 3:
-                drv._s3_complete_time = time.monotonic()
-            elif sector_num == 1:
-                # Starting new lap — reset S3 timer
-                drv._s3_complete_time = None
+                except ValueError:
+                    pass
 
         drv.sectors = [existing[k] for k in sorted(existing)] if existing else None
+
+        pass
 
     def _recompute_sector_colours(self, sector_idx: int, exclude_rn: str) -> None:
         """When a new overall best is set in a sector, downgrade other drivers'

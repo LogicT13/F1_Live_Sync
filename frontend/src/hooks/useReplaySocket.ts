@@ -24,6 +24,7 @@ export interface ReplayDriver {
   has_fastest_lap: boolean;
   flag: "investigation" | "penalty" | null;
   retired: boolean;
+
   knocked_out?: boolean;
   pit_start: boolean;
   no_timing: boolean;
@@ -37,7 +38,7 @@ export interface ReplayDriver {
   pit_prediction: number | null;
   pit_prediction_margin: number | null;
   pit_prediction_free_air: number | null;
-  sectors: { num: number; color: "purple" | "green" | "yellow" }[] | null;
+  sectors: { num: number; color: "purple" | "green" | "yellow" | "grey"; segments?: { status: number, color: string }[] }[] | null;
 }
 
 export interface WeatherData {

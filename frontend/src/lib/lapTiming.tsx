@@ -1,7 +1,7 @@
 // Shared lap-timing display logic used by both the leaderboard timing tower
 // and the qualifying lap-completion bubbles, so the two never diverge.
 
-export type SectorColor = "purple" | "green" | "yellow";
+export type SectorColor = "purple" | "green" | "yellow" | "grey";
 export interface SectorInfo {
   num: number;
   color: SectorColor;
