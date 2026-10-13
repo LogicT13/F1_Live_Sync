@@ -20,25 +20,15 @@ export default function MicrosectorsBar({ driver, isVisible }: MicrosectorsBarPr
     }
   };
 
-  const renderSector = (sector: { num: number; segments?: { status: number, color: string }[] }) => {
-    const segments = sector.segments || [];
-    return (
-      <div key={sector.num} className="flex flex-col items-center gap-1">
-        <div className="text-[10px] text-gray-400 font-bold tracking-widest">S{sector.num}</div>
-        <div className="flex gap-[2px]">
-          {segments.map((seg, idx) => (
-            <div
-              key={idx}
-              className={`w-2 h-4 rounded-[1px] transition-colors duration-200 ${getColorClass(seg.color)}`}
-            />
-          ))}
-          {segments.length === 0 && (
-             <div className="w-2 h-4 rounded-[1px] transition-colors duration-200 bg-transparent" />
-          )}
-        </div>
-      </div>
-    );
-  };
+  // Collect all 30 microsectors (assume 10 per sector)
+  const allSegments = [];
+  for (let s = 1; s <= 3; s++) {
+    const sector = driver.sectors.find(sec => sec.num === s);
+    const segments = sector?.segments || [];
+    for (let i = 0; i < 10; i++) {
+      allSegments.push(segments[i] || { status: 0, color: 'empty' });
+    }
+  }
 
   return (
     <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-50 animate-in slide-in-from-bottom-4 fade-in duration-300 pointer-events-none">
@@ -56,14 +46,15 @@ export default function MicrosectorsBar({ driver, isVisible }: MicrosectorsBarPr
           </div>
         </div>
 
-        {/* Sectors */}
-        <div className="flex items-center gap-4">
-          {driver.sectors.map((sector, index) => (
-            <React.Fragment key={sector.num}>
-              {renderSector(sector)}
-              {index < driver.sectors!.length - 1 && (
-                 <div className="w-[1px] h-6 bg-white/10" />
-              )}
+        {/* Continuous Microsectors Bar */}
+        <div className="flex gap-[2px]">
+          {allSegments.map((seg, idx) => (
+            <React.Fragment key={idx}>
+              <div
+                className={`w-2 h-5 rounded-[1px] transition-colors duration-200 ${seg.color === 'empty' ? 'bg-white/10' : getColorClass(seg.color)}`}
+              />
+              {/* Optional tiny visual separator between sectors (after 10th and 20th segment) */}
+              {(idx === 9 || idx === 19) && <div className="w-[2px]" />}
             </React.Fragment>
           ))}
         </div>

@@ -1337,6 +1337,45 @@ def _get_driver_positions_by_time_sync(
             return None
         return str(val)
 
+
+    # === NEW SEGMENT LOGIC ===
+    segment_events = [] # list of (time, abbr, sector, segment_map)
+    try:
+        import json
+        responses = f1api.fetch_page(session.api_path, 'timing_data')
+        if isinstance(responses, list):
+            for data in responses:
+                if isinstance(data, list) and len(data) > 1 and isinstance(data[1], dict):
+                    try:
+                        parts = data[0].split(':')
+                        t_sec = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+                        msg = data[1]
+                        lines = msg.get("Lines", {})
+                        for drv_num, v in lines.items():
+                            abbr = num_to_abbr.get(str(drv_num))
+                            if not abbr: continue
+                            if "Sectors" in v:
+                                sectors = v["Sectors"]
+                                if isinstance(sectors, list):
+                                    sectors = {str(i): s for i, s in enumerate(sectors) if isinstance(s, dict)}
+                                for sec_idx_str, sec in sectors.items():
+                                    sec_num = int(sec_idx_str) + 1
+                                    if isinstance(sec, dict) and "Segments" in sec:
+                                        segs = sec["Segments"]
+                                        if isinstance(segs, list):
+                                            segs = {str(i): sg for i, sg in enumerate(segs) if isinstance(sg, dict)}
+                                        segment_events.append((t_sec, abbr, sec_num, segs))
+                    except Exception:
+                        pass
+        segment_events.sort(key=lambda x: x[0])
+        logger.info(f"Loaded {len(segment_events)} segment events from timing data")
+    except Exception as e:
+        logger.error(f"Failed to load segment events: {e}")
+
+    seg_event_idx = 0
+    current_segments = {} # abbr -> {1: {num:1, color:"grey", segments:[...]}, ...}
+    last_lap_num = {} # abbr -> int
+
     def _gap_sort_key(gap_str: str | None) -> float:
         """Convert gap string to a sortable number. Leader (LAP X) = 0, +N.NNN = N.NNN, lapped = 9000+N, None = inf."""
         if gap_str is None:
@@ -1364,6 +1403,45 @@ def _get_driver_positions_by_time_sync(
         seen_drivers = set()
 
         # Collect each driver's track coordinates and gap data
+
+        session_t_sectors = t_sec + sector_time_offset
+        
+        while seg_event_idx < len(segment_events) and segment_events[seg_event_idx][0] <= session_t_sectors:
+            _, abbr, sec_num, segs = segment_events[seg_event_idx]
+            if abbr not in current_segments:
+                current_segments[abbr] = {}
+                
+            parsed = {}
+            for k, seg_v in segs.items():
+                if isinstance(seg_v, dict) and "Status" in seg_v:
+                    st = seg_v["Status"]
+                    c = "grey"
+                    if st in (2051, 2052): c = "purple"
+                    elif st == 2049: c = "green"
+                    elif st == 2048: c = "yellow"
+                    parsed[int(k)] = {"status": st, "color": c}
+            
+            if parsed or len(segs) == 0:
+                if sec_num not in current_segments[abbr]:
+                    current_segments[abbr][sec_num] = {"num": sec_num, "color": "grey", "segments": {}}
+                
+                if len(segs) == 0:
+                    current_segments[abbr][sec_num]["segments"] = {}
+                else:
+                    # Merge incremental segment updates
+                    if isinstance(current_segments[abbr][sec_num]["segments"], list):
+                        # Convert old data if it was a list (from earlier buggy iterations)
+                        current_segments[abbr][sec_num]["segments"] = {}
+                    current_segments[abbr][sec_num]["segments"].update(parsed)
+                    
+                # If they update the FIRST segment of a sector, clear the later sectors
+                if "0" in segs:
+                    for later in range(sec_num + 1, 4):
+                        if later in current_segments[abbr]:
+                            del current_segments[abbr][later]
+                
+            seg_event_idx += 1
+
         for drv, arrays in driver_arrays.items():
             times = arrays["times"]
             idx = np.searchsorted(times, t_sec, side="left")
@@ -1655,6 +1733,7 @@ def _get_driver_positions_by_time_sync(
                     drv_abbr = d["abbr"]
                     events = driver_sector_events.get(drv_abbr, [])
 
+
                     def _collect_sectors_for_lap(target_lap: int) -> list[dict]:
                         """Collect completed sector indicators for a specific lap."""
                         result = []
@@ -1672,6 +1751,29 @@ def _get_driver_positions_by_time_sync(
                                     color = "yellow"
                                 result.append({"num": sec_num2, "color": color})
                         return result
+                        
+                    def _augment_with_segments(sectors, drv_abbr, is_linger=False):
+                        if is_linger:
+                            return sectors
+                        c_segs = current_segments.get(drv_abbr, {})
+                        for s_num, s_data in c_segs.items():
+                            
+                            # Convert dict to sorted list of segment objects
+                            raw_segs = s_data["segments"]
+                            if isinstance(raw_segs, dict):
+                                seg_list = [raw_segs[k] for k in sorted(raw_segs.keys())]
+                            else:
+                                seg_list = raw_segs
+                                
+                            found = False
+                            for s in sectors:
+                                if s["num"] == s_num:
+                                    s["segments"] = seg_list
+                                    found = True
+                            if not found:
+                                sectors.append({"num": s_num, "color": "grey", "segments": seg_list})
+                        return sorted(sectors, key=lambda x: x["num"])
+
 
                     # Find the most recent sector event to determine what lap we're on
                     last_evt_lap = None
@@ -1686,7 +1788,8 @@ def _get_driver_positions_by_time_sync(
                             last_evt_out = is_out_lap
                             break
 
-                    # Check if the driver has moved to a newer lap (no sectors yet)
+
+                    # Check if the driver has moved to a newer lap
                     current_lap_num = last_evt_lap
                     is_current_out_lap = last_evt_out
                     for comp_t, comp_lap in driver_lap_completions.get(drv_abbr, []):
@@ -1696,6 +1799,12 @@ def _get_driver_positions_by_time_sync(
                                 is_current_out_lap = current_lap_num in driver_out_laps.get(drv_abbr, set())
                         else:
                             break
+                            
+                    if last_lap_num.get(drv_abbr) != current_lap_num:
+                        last_lap_num[drv_abbr] = current_lap_num
+                        if drv_abbr in current_segments:
+                            current_segments[drv_abbr].clear()
+
 
                     if current_lap_num is None:
                         d["sectors"] = None
@@ -1704,6 +1813,7 @@ def _get_driver_positions_by_time_sync(
                     # If we're on the same lap as the last sector event, show that lap's sectors
                     if current_lap_num == last_evt_lap and not last_evt_out:
                         sectors = _collect_sectors_for_lap(current_lap_num)
+                        sectors = _augment_with_segments(sectors, drv_abbr)
                         d["sectors"] = sectors if sectors else None
                         continue
 
@@ -1712,6 +1822,7 @@ def _get_driver_positions_by_time_sync(
                         if session_t_sectors - last_evt_time <= SECTOR_LINGER:
                             # Show the completed previous lap's sectors for a few more seconds
                             sectors = _collect_sectors_for_lap(last_evt_lap)
+                            sectors = _augment_with_segments(sectors, drv_abbr, is_linger=True)
                             d["sectors"] = sectors if sectors else None
                             continue
 
@@ -1720,6 +1831,7 @@ def _get_driver_positions_by_time_sync(
                         d["sectors"] = None
                     else:
                         sectors = _collect_sectors_for_lap(current_lap_num)
+                        sectors = _augment_with_segments(sectors, drv_abbr)
                         d["sectors"] = sectors if sectors else None
 
         # Determine current lap from leader's gap ("LAP N") and assign fastest lap

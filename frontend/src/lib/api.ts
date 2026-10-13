@@ -1,13 +1,15 @@
 import { getToken, clearToken } from "./auth";
 
-export const API_URL = "http://localhost:8000";
+export const API_URL = "";
 
 export function apiUrl(path: string): string {
   return `${API_URL}${path}`;
 }
 
 export function wsUrl(path: string): string {
-  const base = "ws://localhost:8000";
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host = window.location.host;
+  const base = `${protocol}//${host}`;
   const token = getToken();
   const separator = path.includes("?") ? "&" : "?";
   const tokenParam = token ? `${separator}token=${encodeURIComponent(token)}` : "";

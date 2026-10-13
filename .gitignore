@@ -1,6 +1,7 @@
 node_modules/
 backend/venv/
-backend/__pycache__/
+**/__pycache__/
 backend/.fastf1-cache/
 backend/data/sessions/
 .env
+backend/scratch_*.py

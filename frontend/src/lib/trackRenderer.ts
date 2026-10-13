@@ -477,8 +477,16 @@ export function drawDrivers(
   const scale = Math.min(w / rangeX, h / rangeY);
   const offsetX = padX + (w - rangeX * scale) / 2;
   const offsetY = padTop + (h - rangeY * scale) / 2;
+  const hasHighlights = highlightedDrivers.length > 0;
 
-  for (const drv of drivers) {
+  // Draw unhighlighted drivers first so highlighted ones render on top
+  const sortedDrivers = [...drivers].sort((a, b) => {
+      const aHi = highlightedDrivers.includes(a.abbr) ? 1 : 0;
+      const bHi = highlightedDrivers.includes(b.abbr) ? 1 : 0;
+      return aHi - bHi;
+  });
+
+  for (const drv of sortedDrivers) {
     // Rotate driver position
     const dx = drv.x - cx;
     const dy = drv.y - cy;
@@ -491,35 +499,57 @@ export function drawDrivers(
     const sy = transform.y + baseY * transform.k;
 
     const isHighlighted = highlightedDrivers.includes(drv.abbr);
-    const radius = isHighlighted ? 8 : 5;
+    const radius = isHighlighted ? 6 : (hasHighlights ? 4 : 5);
 
     ctx.save();
 
-    // Glow effect for highlighted
-    if (isHighlighted) {
-      ctx.beginPath();
-      ctx.arc(sx, sy, 14, 0, Math.PI * 2);
-      ctx.fillStyle = drv.color + "40";
-      ctx.fill();
+    if (hasHighlights && !isHighlighted) {
+      ctx.globalAlpha = 0.90; // Just slightly faded
     }
 
-    // Driver dot
-    ctx.beginPath();
-    ctx.arc(sx, sy, radius, 0, Math.PI * 2);
-    ctx.fillStyle = drv.color;
-    ctx.strokeStyle = drv.color;
-    ctx.lineWidth = 1;
-    ctx.fill();
-    ctx.stroke();
+    if (isHighlighted) {
+      // Modern sophisticated glow (drop shadow)
+      ctx.shadowColor = drv.color;
+      ctx.shadowBlur = 10;
+      
+      // Outer colored dot
+      ctx.beginPath();
+      ctx.arc(sx, sy, radius + 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = drv.color;
+      ctx.fill();
 
-    ctx.restore();
+      ctx.shadowBlur = 0; // reset for inner part
+      
+      // Inner white core for crispness
+      ctx.beginPath();
+      ctx.arc(sx, sy, radius - 1, 0, Math.PI * 2);
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fill();
+      
+      ctx.shadowBlur = 0; // reset for text
+    } else {
+      ctx.beginPath();
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
+      ctx.fillStyle = drv.color;
+      ctx.fill();
+      
+      ctx.strokeStyle = "#000000";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
 
     // Driver label
     if (showNames) {
       ctx.font = isHighlighted ? "800 12px system-ui, -apple-system, sans-serif" : "800 10px system-ui, -apple-system, sans-serif";
-      ctx.fillStyle = "#FFFFFF";
+      ctx.fillStyle = isHighlighted ? "#FFFFFF" : "#CCCCCC";
+      if (isHighlighted) {
+          ctx.shadowColor = "#000000";
+          ctx.shadowBlur = 4;
+      }
       ctx.textAlign = "center";
-      ctx.fillText(drv.abbr, sx, sy - radius - 4);
+      ctx.fillText(drv.abbr, sx, sy - radius - (isHighlighted ? 6 : 4));
     }
+    
+    ctx.restore();
   }
 }

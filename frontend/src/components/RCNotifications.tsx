@@ -9,7 +9,7 @@ interface RCNotificationsProps {
 
 export default function RCNotifications({ messages, currentTime }: RCNotificationsProps) {
   const [minimized, setMinimized] = useState(false);
-  const [activeMessages, setActiveMessages] = useState<RCMessage[]>([]);
+  const [displayMessages, setDisplayMessages] = useState<{msg: RCMessage, exiting: boolean}[]>([]);
 
   useEffect(() => {
     // Only show messages from the last 20 seconds of session time, up to 5 at a time
@@ -17,8 +17,33 @@ export default function RCNotifications({ messages, currentTime }: RCNotificatio
       .reverse()
       .filter(msg => currentTime - msg.timestamp <= 20 && currentTime >= msg.timestamp)
       .slice(0, 5);
-    setActiveMessages(recent);
+      
+    setDisplayMessages(prev => {
+        const next = [...prev];
+        // Mark as exiting if they are in prev but not in recent
+        next.forEach(item => {
+            if (!recent.some(r => r.message === item.msg.message && r.timestamp === item.msg.timestamp)) {
+                item.exiting = true;
+            }
+        });
+        // Add new messages
+        recent.forEach(r => {
+            if (!next.some(item => item.msg.message === r.message && item.msg.timestamp === r.timestamp)) {
+                next.push({ msg: r, exiting: false });
+            }
+        });
+        // Remove those that have been exiting for a while (handled by another effect/timeout or just clean up here)
+        // Actually it's easier to just clean them up after 500ms
+        return next;
+    });
   }, [messages, currentTime]);
+  
+  useEffect(() => {
+      const timer = setInterval(() => {
+          setDisplayMessages(prev => prev.filter(item => !item.exiting));
+      }, 500); // 500ms is the duration of the exit animation
+      return () => clearInterval(timer);
+  }, []);
 
   const getIcon = (category: string) => {
     if (category === 'Flag') return <Flag className="text-green-400" size={18} />;
@@ -33,7 +58,7 @@ export default function RCNotifications({ messages, currentTime }: RCNotificatio
     return 'border-gray-700 bg-black/80';
   };
 
-  if (activeMessages.length === 0) return null;
+  if (displayMessages.length === 0) return null;
 
   return (
     <div className="absolute top-4 right-4 z-50 flex flex-col items-end gap-2 pointer-events-none">
@@ -41,13 +66,13 @@ export default function RCNotifications({ messages, currentTime }: RCNotificatio
         onClick={() => setMinimized(!minimized)}
         className="pointer-events-auto bg-gray-800 hover:bg-gray-700 text-white text-xs px-3 py-1 rounded-full border border-gray-600 transition-colors shadow-lg backdrop-blur-md"
       >
-        {minimized ? `${activeMessages.length} Notificaciones` : 'Ocultar'}
+        {minimized ? `${displayMessages.filter(m => !m.exiting).length} Notificaciones` : 'Ocultar'}
       </button>
 
-      {!minimized && activeMessages.map((msg, i) => (
+      {!minimized && displayMessages.map(({msg, exiting}, i) => (
         <div 
-          key={i} 
-          className={`pointer-events-auto flex items-start gap-3 p-3 rounded-lg border shadow-xl backdrop-blur-md w-72 transition-all transform origin-top-right animate-in fade-in slide-in-from-right-4 ${getBgColor(msg.category)}`}
+          key={`${msg.timestamp}-${msg.message}`}
+          className={`pointer-events-auto flex items-start gap-3 p-3 rounded-lg border shadow-xl backdrop-blur-md w-72 transition-all duration-500 transform origin-top-right ${exiting ? 'opacity-0 translate-x-8 scale-95' : 'animate-slide-in'} ${getBgColor(msg.category)}`}
         >
           <div className="shrink-0 mt-0.5">
             {getIcon(msg.category)}

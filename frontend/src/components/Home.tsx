@@ -196,9 +196,24 @@ export default function Home() {
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                     {nextEvent.sessions.map((session, idx) => {
                       const sessionDate = session.date_utc ? new Date(session.date_utc) : null;
-                      const isFuture = sessionDate && sessionDate > now;
-                      // Habilita el boton siempre para entrar a la sala de espera interactiva
-                      const canEnterLive = isFuture;
+                      
+                      const sessionDurations: Record<string, number> = {
+                        "Race": 7200,
+                        "Qualifying": 4200,
+                        "Sprint": 3600,
+                        "Sprint Qualifying": 3000,
+                        "Sprint Shootout": 3000,
+                        "Practice 1": 3600,
+                        "Practice 2": 3600,
+                        "Practice 3": 3600,
+                      };
+                      const durationSecs = sessionDurations[session.name] || 3600;
+                      const sessionEnd = sessionDate ? new Date(sessionDate.getTime() + durationSecs * 1000) : null;
+                      const sessionStartWithPre = sessionDate ? new Date(sessionDate.getTime() - 15 * 60 * 1000) : null;
+                      
+                      const isLive = sessionStartWithPre && sessionEnd && now >= sessionStartWithPre && now <= sessionEnd;
+                      const isFuture = sessionStartWithPre && now < sessionStartWithPre;
+
                       const isMaster = masterNextSession === session;
 
                       return (
@@ -214,22 +229,24 @@ export default function Home() {
                             </div>
                             
                             <div className="mt-6">
-                              {isFuture ? (
-                                canEnterLive ? (
-                                  <button 
-                                    onClick={() => navigate(`/live/${currentYear}/${nextEvent?.round_number}/${getTypeCode(session.name)}`)}
-                                    className="w-full py-2.5 bg-f1-red hover:bg-red-600 text-white font-bold rounded-lg transition-colors text-xs uppercase tracking-wider shadow-lg shadow-red-500/20"
-                                  >
-                                    Entrar a Sesión
-                                  </button>
-                                ) : (
-                                  <div className="text-gray-500 text-xs font-semibold uppercase tracking-widest text-center py-2.5 border border-white/5 rounded-lg bg-black/20">
-                                    En Espera
-                                  </div>
-                                )
-                              ) : (
+                              {isLive ? (
                                 <button 
                                   onClick={() => navigate(`/live/${currentYear}/${nextEvent?.round_number}/${getTypeCode(session.name)}`)}
+                                  className="w-full py-2.5 bg-f1-red hover:bg-red-600 text-white font-bold rounded-lg transition-colors text-xs uppercase tracking-wider shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"
+                                >
+                                  <span className="relative flex h-3 w-3">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-3 w-3 bg-white"></span>
+                                  </span>
+                                  En Vivo
+                                </button>
+                              ) : isFuture ? (
+                                <div className="text-gray-500 text-xs font-semibold uppercase tracking-widest text-center py-2.5 border border-white/5 rounded-lg bg-black/20">
+                                  En Espera
+                                </div>
+                              ) : (
+                                <button 
+                                  onClick={() => navigate(`/replay/${currentYear}/${nextEvent?.round_number}/${getTypeCode(session.name)}`)}
                                   className="w-full py-2.5 bg-white/10 hover:bg-white/20 text-white font-bold rounded-lg transition-colors text-xs uppercase tracking-wider border border-white/10"
                                 >
                                   Ver Replay
@@ -259,7 +276,7 @@ export default function Home() {
                         <div className="text-xs text-gray-500 uppercase tracking-wider font-medium mt-1">{formatDate(evt.event_date)} &bull; {evt.country}</div>
                       </div>
                       <button 
-                        onClick={() => navigate(`/live/${currentYear}/${evt.round_number}/R`)}
+                        onClick={() => navigate(`/replay/${currentYear}/${evt.round_number}/R`)}
                         className="p-3 bg-white/5 group-hover:bg-f1-red rounded-full transition-all duration-300 text-gray-400 group-hover:text-white"
                       >
                         <ChevronRight size={18} />

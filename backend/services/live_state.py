@@ -68,6 +68,150 @@ def _sanitize_value(val: Any) -> Any:
     return val
 
 
+def _as_indexed(val: Any) -> Any:
+    """F1 sends arrays in keyframes and {"0": {...}} dicts in deltas.
+    Normalise lists into string-indexed dicts so both merge identically."""
+    if isinstance(val, list):
+        return {str(i): v for i, v in enumerate(val)}
+    return val
+
+
+def _deep_merge(dst: dict, src: dict) -> None:
+    """Merge an incremental SignalR update into an accumulated mirror."""
+    for k, v in src.items():
+        if k == "_deleted":
+            continue
+        v = _as_indexed(v)
+        if isinstance(v, dict):
+            cur = dst.get(k)
+            if not isinstance(cur, dict):
+                cur = {}
+                dst[k] = cur
+            _deep_merge(cur, v)
+        else:
+            dst[k] = v
+
+
+def _indexed_list(d: Any) -> list:
+    """Return the values of a string-indexed dict ordered by index."""
+    if not isinstance(d, dict):
+        return []
+    items = []
+    for k, v in d.items():
+        try:
+            items.append((int(k), v))
+        except (ValueError, TypeError):
+            continue
+    items.sort(key=lambda x: x[0])
+    return [v for _, v in items]
+
+
+_SEGMENT_COLOURS = {2048: "yellow", 2049: "green", 2051: "purple", 2052: "purple", 2064: "pit"}
+
+
+def _timed_value(raw: Any) -> dict[str, Any] | None:
+    """Extract {value, pb, ob} from a feed timing object. None when empty."""
+    if not isinstance(raw, dict):
+        return None
+    val = raw.get("Value")
+    if val in (None, ""):
+        return None
+    return {
+        "value": str(val),
+        "pb": bool(raw.get("PersonalFastest", False)),
+        "ob": bool(raw.get("OverallFastest", False)),
+    }
+
+
+def _derive_timing(raw_t: dict, raw_a: dict, raw_s: dict, quali_part: int) -> dict[str, Any]:
+    """Build a UI-friendly view of exactly what the feed reported."""
+    sectors_out = []
+    for sec in _indexed_list(raw_t.get("Sectors")):
+        if not isinstance(sec, dict):
+            sectors_out.append(None)
+            continue
+        segs = []
+        for seg in _indexed_list(sec.get("Segments")):
+            st = seg.get("Status", 0) if isinstance(seg, dict) else 0
+            segs.append(_SEGMENT_COLOURS.get(st, "none"))
+        val = sec.get("Value") or None
+        sectors_out.append({
+            "value": val,
+            "previous": sec.get("PreviousValue") or None,
+            "pb": bool(sec.get("PersonalFastest", False)) if val else False,
+            "ob": bool(sec.get("OverallFastest", False)) if val else False,
+            "segments": segs,
+        })
+
+    speeds = {}
+    raw_speeds = raw_t.get("Speeds") or {}
+    for key in ("I1", "I2", "FL", "ST"):
+        tv = _timed_value(raw_speeds.get(key))
+        if tv:
+            speeds[key] = tv
+
+    best_sectors = []
+    for bs in _indexed_list(raw_s.get("BestSectors")):
+        if isinstance(bs, dict) and bs.get("Value"):
+            best_sectors.append({"value": bs.get("Value"), "position": bs.get("Position")})
+        else:
+            best_sectors.append(None)
+
+    best_speeds = {}
+    for key, bs in (raw_s.get("BestSpeeds") or {}).items():
+        if isinstance(bs, dict) and bs.get("Value"):
+            best_speeds[key] = {"value": bs.get("Value"), "position": bs.get("Position")}
+
+    stints = []
+    for st in _indexed_list(raw_a.get("Stints")):
+        if not isinstance(st, dict):
+            continue
+        comp = str(st.get("Compound", "") or "").upper() or None
+        stints.append({
+            "compound": comp if comp != "UNKNOWN" else None,
+            "new": str(st.get("New", "")).lower() == "true" if st.get("New") is not None else None,
+            "total_laps": st.get("TotalLaps"),
+            "start_laps": st.get("StartLaps"),
+        })
+
+    best_lap = None
+    blt = raw_t.get("BestLapTime")
+    if isinstance(blt, dict) and blt.get("Value"):
+        best_lap = {"value": blt.get("Value"), "lap": blt.get("Lap")}
+
+    # Qualifying: per-part best lap + diffs (Stats / BestLapTimes arrays)
+    quali = None
+    if quali_part > 0:
+        parts = _indexed_list(raw_t.get("BestLapTimes"))
+        stats = _indexed_list(raw_t.get("Stats"))
+        idx = quali_part - 1
+        part_best = parts[idx].get("Value") if idx < len(parts) and isinstance(parts[idx], dict) else None
+        part_stats = stats[idx] if idx < len(stats) and isinstance(stats[idx], dict) else {}
+        quali = {
+            "part": quali_part,
+            "best": part_best or None,
+            "gap": part_stats.get("TimeDiffToFastest") or None,
+            "interval": part_stats.get("TimeDifftoPositionAhead") or part_stats.get("TimeDiffToPositionAhead") or None,
+            "part_bests": [p.get("Value") or None if isinstance(p, dict) else None for p in parts],
+        }
+
+    return {
+        "last_lap": _timed_value(raw_t.get("LastLapTime")),
+        "best_lap": best_lap,
+        "laps": raw_t.get("NumberOfLaps"),
+        "pit_out": bool(raw_t.get("PitOut", False)),
+        "stopped": bool(raw_t.get("Stopped", False)),
+        "num_pit_stops": raw_t.get("NumberOfPitStops"),
+        "sectors": sectors_out,
+        "speeds": speeds,
+        "best_sectors": best_sectors,
+        "best_speeds": best_speeds,
+        "personal_best": (raw_s.get("PersonalBestLapTime") or {}).get("Value") or None,
+        "stints": stints,
+        "quali": quali,
+    }
+
+
 class _DriverState:
     """Mutable per-driver state."""
 
@@ -107,6 +251,13 @@ class _DriverState:
         "_last_stint_idx",
         "_s3_complete_time",
         "_sector_times",
+        "raw_timing",
+        "raw_app",
+        "raw_stats",
+        "full_name",
+        "first_name",
+        "last_name",
+        "headshot",
     )
 
     def __init__(self, racing_number: str) -> None:
@@ -114,6 +265,13 @@ class _DriverState:
         self.abbr: str = ""
         self.team: str = ""
         self.color: str = "#FFFFFF"
+        self.full_name: str = ""
+        self.first_name: str = ""
+        self.last_name: str = ""
+        self.headshot: str = ""
+        self.raw_timing: dict[str, Any] = {}
+        self.raw_app: dict[str, Any] = {}
+        self.raw_stats: dict[str, Any] = {}
         self.position: int | None = None
         self.gap: str | None = None
         self.interval: str | None = None
@@ -147,9 +305,15 @@ class _DriverState:
         self._sector_times: dict[int, float] = {}  # sector_num -> time in seconds (for colour recomputation)
         self._stint_count: int = 0
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, quali_part: int = 0) -> dict[str, Any]:
         return {
             "abbr": self.abbr,
+            "racing_number": self.racing_number,
+            "full_name": self.full_name or None,
+            "first_name": self.first_name or None,
+            "last_name": self.last_name or None,
+            "headshot": self.headshot or None,
+            "timing": _derive_timing(self.raw_timing, self.raw_app, self.raw_stats, quali_part),
             "position": self.position,
             "gap": self.gap,
             "interval": self.interval,
@@ -257,6 +421,11 @@ class LiveStateManager:
         # Overall sector bests (sector index 0-2 -> best time)
         self._overall_sector_bests: dict[int, float] = {}
 
+        # Feed session identity (from SessionInfo topic)
+        self._feed_session_key: Any = None
+        self._feed_session: dict[str, Any] | None = None
+        self._track_message: str = ""
+
     # ------------------------------------------------------------------
     # Driver helpers
     # ------------------------------------------------------------------
@@ -266,6 +435,30 @@ class LiveStateManager:
         if number not in self._drivers:
             self._drivers[number] = _DriverState(number)
         return self._drivers[number]
+
+    def _reset_for_new_session(self) -> None:
+        """The feed switched to a new session: drop every timing value from
+        the previous one. Driver identity (name/team/colour) is kept because
+        the DriverList is not always re-sent and belongs to the same weekend."""
+        fresh: dict[str, _DriverState] = {}
+        for num, old in self._drivers.items():
+            d = _DriverState(num)
+            d.abbr, d.team, d.color = old.abbr, old.team, old.color
+            d.full_name, d.first_name, d.last_name, d.headshot = (
+                old.full_name, old.first_name, old.last_name, old.headshot)
+            fresh[num] = d
+        self._drivers = fresh
+        self._current_lap = 0
+        self._total_laps = 0
+        self._session_status = "Inactive"
+        self._session_was_started = False
+        self._quali_phase = 0
+        self._clock_remaining = 0.0
+        self._clock_extrapolating = False
+        self._clock_update_time = 0.0
+        self._rc_messages = []
+        self._overall_sector_bests = {}
+        logger.info("Feed switched session -> state reset")
 
     @property
     def _is_race(self) -> bool:
@@ -325,6 +518,14 @@ class LiveStateManager:
                 if not colour.startswith("#"):
                     colour = "#" + colour
                 drv.color = colour
+            if info.get("FullName"):
+                drv.full_name = info["FullName"]
+            if info.get("FirstName"):
+                drv.first_name = info["FirstName"]
+            if info.get("LastName"):
+                drv.last_name = info["LastName"]
+            if info.get("HeadshotUrl"):
+                drv.headshot = info["HeadshotUrl"]
 
     # --- TimingData ---------------------------------------------------
 
@@ -336,6 +537,7 @@ class LiveStateManager:
             if not isinstance(updates, dict):
                 continue
             drv = self._get_driver(str(number))
+            _deep_merge(drv.raw_timing, updates)
 
             if "Position" in updates:
                 try:
@@ -580,25 +782,31 @@ class LiveStateManager:
             scale = self._track_norm["scale"]
 
         for number, raw_x, raw_y, status in raw_positions:
-            drv = self._get_driver(number)
-            drv.on_track = status == "OnTrack"
+            try:
+                drv = self._get_driver(number)
+                drv.on_track = status == "OnTrack"
+                
+                if scale < 1e-5:
+                    continue
 
-            # Normalize raw Position.z coordinates
-            norm_x = (raw_x - x_min) / scale
-            norm_y = (raw_y - y_min) / scale
+                # Normalize raw Position.z coordinates
+                norm_x = (raw_x - x_min) / scale
+                norm_y = (raw_y - y_min) / scale
 
-            # Snap to nearest track outline point so cars render ON the
-            # track.  Position.z coordinates don't perfectly align with
-            # the FastF1-derived track outline, so using raw normalized
-            # values puts cars visibly off-track.
-            if self._track_xy is not None:
-                rel_dist, snap_x, snap_y = self._snap_to_track(norm_x, norm_y)
-                drv.x = snap_x
-                drv.y = snap_y
-                drv.relative_distance = rel_dist
-            else:
-                drv.x = norm_x
-                drv.y = norm_y
+                # Snap to nearest track outline point so cars render ON the
+                # track.  Position.z coordinates don't perfectly align with
+                # the FastF1-derived track outline, so using raw normalized
+                # values puts cars visibly off-track.
+                if self._track_xy is not None:
+                    rel_dist, snap_x, snap_y = self._snap_to_track(norm_x, norm_y)
+                    drv.x = snap_x
+                    drv.y = snap_y
+                    drv.relative_distance = rel_dist
+                else:
+                    drv.x = norm_x
+                    drv.y = norm_y
+            except Exception as e:
+                logger.error(f"Error parsing position for car {number}: {e}")
 
     def _snap_to_track(self, x: float, y: float) -> tuple[float, float, float]:
         """Snap a position to the nearest point on the track outline.
@@ -629,6 +837,7 @@ class LiveStateManager:
             if not isinstance(updates, dict):
                 continue
             drv = self._get_driver(str(number))
+            _deep_merge(drv.raw_app, updates)
 
             if "GridPos" in updates:
                 try:
@@ -702,6 +911,7 @@ class LiveStateManager:
         for number, stats in lines.items():
             if not isinstance(stats, dict):
                 continue
+            _deep_merge(self._get_driver(str(number)).raw_stats, stats)
             pb = stats.get("PersonalBestLapTime")
             if isinstance(pb, dict):
                 pos = pb.get("Position")
