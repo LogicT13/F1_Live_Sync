@@ -32,6 +32,15 @@ class LiveSession:
         self._started = False
         self._mode = "none"  # "replayer" or "signalr"
         self._msg_logged = False
+        
+        # DVR Buffer for SignalR
+        self._signalr_messages = []
+        self._playback_index = 0
+        self._is_paused = False
+        self._first_timestamp = 0.0
+        self._target_time = 0.0
+        self._playback_speed = 1.0
+        self._last_process_time = 0.0
 
     async def start(
         self,
@@ -41,18 +50,13 @@ class LiveSession:
         speed: float = 10.0,
         use_signalr: bool = False,
     ):
-        """Start the live session.
-
-        If data_dir is provided, uses the test replayer.
-        If use_signalr is True, connects to the real F1 SignalR stream.
-        """
+        """Start the live session."""
         if self._started:
             return
 
         from services.live_state import LiveStateManager
         from services.storage import get_json
 
-        # Initialize state manager with pit loss data
         pit_loss_green = 0.0
         pit_loss_sc = 0.0
         pit_loss_vsc = 0.0
@@ -66,7 +70,6 @@ class LiveSession:
                 pit_loss_sc = ga.get("sc", 10.0)
                 pit_loss_vsc = ga.get("vsc", 14.5)
 
-        # Load track normalization params and outline for position mapping
         track_norm = None
         track_points = None
         if year and round_num:
@@ -78,14 +81,7 @@ class LiveSession:
                     logger.info(f"Loaded track data for live session {year}/{round_num}/{self.session_type}: "
                                 f"{len(track_points)} points, norm={track_norm}")
 
-        self._state_manager = LiveStateManager(
-            session_type=self.session_type,
-            pit_loss_green=pit_loss_green,
-            pit_loss_sc=pit_loss_sc,
-            pit_loss_vsc=pit_loss_vsc,
-            track_norm=track_norm,
-            track_points=track_points,
-        )
+        self._init_state_manager(pit_loss_green, pit_loss_sc, pit_loss_vsc, track_norm, track_points)
 
         if data_dir:
             from services.live_test_replayer import LiveTestReplayer
@@ -97,13 +93,24 @@ class LiveSession:
             from services.live_signalr import LiveSignalRClient
             self._signalr_client = LiveSignalRClient()
             self._task = asyncio.create_task(self._run_signalr())
+            self._playback_task = asyncio.create_task(self._dvr_playback_loop())
             self._mode = "signalr"
 
         self._started = True
         logger.info(f"Live session started: {self.key} (mode={self._mode})")
 
+    def _init_state_manager(self, pit_loss_green=0.0, pit_loss_sc=0.0, pit_loss_vsc=0.0, track_norm=None, track_points=None):
+        from services.live_state import LiveStateManager
+        self._state_manager = LiveStateManager(
+            session_type=self.session_type,
+            pit_loss_green=pit_loss_green,
+            pit_loss_sc=pit_loss_sc,
+            pit_loss_vsc=pit_loss_vsc,
+            track_norm=track_norm,
+            track_points=track_points,
+        )
+
     async def _run_replayer(self):
-        """Run the test replayer, feeding messages into the state manager."""
         try:
             await self._replayer.replay(self._on_message)
         except asyncio.CancelledError:
@@ -112,80 +119,162 @@ class LiveSession:
             logger.error(f"Replayer error: {e}")
 
     async def _run_signalr(self):
-        """Run the real SignalR client, feeding messages into the state manager."""
         try:
-            await self._signalr_client.connect(self._on_message)
+            await self._signalr_client.connect(self._on_signalr_message)
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.error(f"SignalR error: {e}")
 
-    async def _on_message(self, topic: str, data: dict, timestamp: float):
-        """Handle a message from the replayer or SignalR client."""
+    async def _on_signalr_message(self, topic: str, data: dict, timestamp: float):
         if not self._msg_logged:
             logger.info(f"First SignalR message received: topic={topic}")
             self._msg_logged = True
-        self._state_manager.process_message(topic, data, timestamp)
+            self._first_timestamp = timestamp
+            self._last_process_time = asyncio.get_event_loop().time()
+        
+        # Buffer the message continuously
+        self._signalr_messages.append((topic, data, timestamp))
+
+    async def _dvr_playback_loop(self):
+        # Background task that feeds messages from the buffer to the state manager
+        try:
+            while True:
+                await asyncio.sleep(0.05)
+                
+                if self._is_paused or not self._signalr_messages:
+                    self._last_process_time = asyncio.get_event_loop().time()
+                    continue
+
+                now = asyncio.get_event_loop().time()
+                dt = now - self._last_process_time
+                self._last_process_time = now
+
+                # Advance target time
+                self._target_time += dt * self._playback_speed
+
+                # Process messages up to the target time
+                while self._playback_index < len(self._signalr_messages):
+                    msg = self._signalr_messages[self._playback_index]
+                    msg_rel_time = msg[2] - self._first_timestamp
+                    
+                    if msg_rel_time <= self._target_time:
+                        try:
+                            self._state_manager.process_message(msg[0], msg[1], msg[2])
+                        except Exception as e:
+                            logger.error(f"DVR message processing error: {e}")
+                        self._playback_index += 1
+                    else:
+                        break
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"DVR playback loop error: {e}")
+
+    async def _on_message(self, topic: str, data: dict, timestamp: float):
+        try:
+            self._state_manager.process_message(topic, data, timestamp)
+        except Exception as e:
+            logger.error(f"Message processing error: {e}")
 
     def get_frame(self) -> dict | None:
-        """Get the current frame from the state manager."""
         if self._state_manager is None:
             return None
-        return self._state_manager.get_frame()
+        frame = self._state_manager.get_frame()
+        # For SignalR, override totalTime so the scrubber knows the max buffer size
+        if self._mode == "signalr" and self._signalr_messages:
+            frame["totalTime"] = self._signalr_messages[-1][2] - self._first_timestamp
+            frame["timestamp"] = min(self._target_time, frame["totalTime"])
+        return frame
+
+    def set_playback(self, paused: bool, speed: float):
+        self._is_paused = paused
+        self._playback_speed = speed
+        self._last_process_time = asyncio.get_event_loop().time()
 
     def skip_forward(self, seconds: float):
-        """Skip forward (or backward) by a given number of seconds."""
-        if not self._replayer or not self._replayer._messages:
-            return
-
-        current_ts = self._replayer._messages[self._replayer._current_index].timestamp
-        target_ts = current_ts + seconds
-
-        self.seek(target_ts)
+        if self._mode == "signalr":
+            self.seek(self._target_time + seconds)
+        elif self._replayer and self._replayer._messages:
+            current_ts = self._replayer._messages[self._replayer._current_index].timestamp
+            self.seek(current_ts + seconds)
 
     def seek(self, target_ts: float):
-        """Seek to an absolute timestamp in the replay."""
-        if not self._replayer or not self._replayer._messages:
-            return
+        if self._mode == "signalr":
+            if not self._signalr_messages:
+                return
+            
+            target_rel_time = max(0.0, min(target_ts, self._signalr_messages[-1][2] - self._first_timestamp))
+            self._target_time = target_rel_time
+            
+            # Find new index based on relative time
+            new_idx = 0
+            for i, msg in enumerate(self._signalr_messages):
+                if (msg[2] - self._first_timestamp) > target_rel_time:
+                    break
+                new_idx = i
 
-        replayer = self._replayer
-
-        # Binary search for the closest message to target_ts
-        lo, hi = 0, len(replayer._messages)
-        while lo < hi:
-            mid = (lo + hi) // 2
-            if replayer._messages[mid].timestamp < target_ts:
-                lo = mid + 1
+            if new_idx < self._playback_index:
+                # Rebuild state from scratch
+                self._init_state_manager(
+                    self._state_manager._pit_loss_green,
+                    self._state_manager._pit_loss_sc,
+                    self._state_manager._pit_loss_vsc,
+                    self._state_manager._track_norm,
+                    [{"x": float(row[0]), "y": float(row[1])} for row in self._state_manager._track_xy] if self._state_manager._track_xy is not None else None,
+                )
+                for i in range(new_idx):
+                    msg = self._signalr_messages[i]
+                    try:
+                        self._state_manager.process_message(msg[0], msg[1], msg[2])
+                    except Exception:
+                        pass
             else:
-                hi = mid
-        target_idx = lo
+                # Fast forward
+                for i in range(self._playback_index, new_idx):
+                    msg = self._signalr_messages[i]
+                    try:
+                        self._state_manager.process_message(msg[0], msg[1], msg[2])
+                    except Exception:
+                        pass
+            
+            self._playback_index = new_idx
+            logger.info(f"SignalR DVR Seeked to {target_rel_time:.1f}s (idx {new_idx})")
 
-        # If skipping forward, process through state manager.
-        # If skipping backward, we must rebuild the state from the beginning.
-        if target_idx > replayer._current_index:
-            idx = replayer._current_index
-            while idx < target_idx:
-                msg = replayer._messages[idx]
-                self._state_manager.process_message(msg.topic, msg.data, msg.timestamp)
-                idx += 1
-        else:
-            # Rebuilding state from scratch
-            self._state_manager.__init__(
-                self._state_manager._session_type,
-                self._state_manager._pit_loss_green,
-                self._state_manager._pit_loss_sc,
-                self._state_manager._pit_loss_vsc,
-                self._state_manager._track_norm,
-                [{"x": float(row[0]), "y": float(row[1])} for row in self._state_manager._track_xy] if self._state_manager._track_xy is not None else None,
-            )
-            idx = 0
-            while idx < target_idx:
-                msg = replayer._messages[idx]
-                self._state_manager.process_message(msg.topic, msg.data, msg.timestamp)
-                idx += 1
+        elif self._mode == "replayer" and self._replayer and self._replayer._messages:
+            replayer = self._replayer
+            lo, hi = 0, len(replayer._messages)
+            while lo < hi:
+                mid = (lo + hi) // 2
+                if replayer._messages[mid].timestamp < target_ts:
+                    lo = mid + 1
+                else:
+                    hi = mid
+            target_idx = lo
 
-        replayer._current_index = target_idx
-        logger.info(f"Seeked to {target_ts:.1f}s (idx {target_idx})")
+            if target_idx > replayer._current_index:
+                idx = replayer._current_index
+                while idx < target_idx:
+                    msg = replayer._messages[idx]
+                    self._state_manager.process_message(msg.topic, msg.data, msg.timestamp)
+                    idx += 1
+            else:
+                self._init_state_manager(
+                    self._state_manager._pit_loss_green,
+                    self._state_manager._pit_loss_sc,
+                    self._state_manager._pit_loss_vsc,
+                    self._state_manager._track_norm,
+                    [{"x": float(row[0]), "y": float(row[1])} for row in self._state_manager._track_xy] if self._state_manager._track_xy is not None else None,
+                )
+                idx = 0
+                while idx < target_idx:
+                    msg = replayer._messages[idx]
+                    self._state_manager.process_message(msg.topic, msg.data, msg.timestamp)
+                    idx += 1
+
+            replayer._current_index = target_idx
+            logger.info(f"Seeked to {target_ts:.1f}s (idx {target_idx})")
 
     def add_client(self, ws: WebSocket):
         self.clients.append(ws)
@@ -203,6 +292,8 @@ class LiveSession:
             self._replayer.stop()
         if self._signalr_client:
             await self._signalr_client.disconnect()
+        if hasattr(self, '_playback_task') and self._playback_task:
+            self._playback_task.cancel()
         if self._task:
             self._task.cancel()
             try:
@@ -214,13 +305,7 @@ class LiveSession:
 
 
 def _find_track_data(year: int, round_num: int, session_type: str) -> dict | None:
-    """Find track data for a session, with fallback to other sessions/years.
-
-    Tries in order:
-    1. Exact match: this year/round/session
-    2. Other session types at this year/round (R, Q, S, FP1, etc.)
-    3. Same round in previous years (circuits sometimes keep same round number)
-    """
+    """Find track data for a session, with fallback to other sessions/years based on location."""
     from services.storage import get_json
 
     # 1. Exact match
@@ -237,13 +322,53 @@ def _find_track_data(year: int, round_num: int, session_type: str) -> dict | Non
             logger.info(f"Track data fallback: using {year}/{round_num}/{alt_type} for {session_type}")
             return data
 
-    # 3. Previous years, same round number (track outlines rarely change)
-    for prev_year in range(year - 1, year - 4, -1):
-        for alt_type in ("R", "Q"):
-            data = get_json(f"sessions/{prev_year}/{round_num}/{alt_type}/track.json")
-            if data:
-                logger.info(f"Track data fallback: using {prev_year}/{round_num}/{alt_type} for {year}/{round_num}/{session_type}")
-                return data
+    # 3. Same location in previous years
+    schedule = get_json(f"seasons/{year}/schedule.json")
+    if schedule:
+        events = schedule.get("events", [])
+        if 0 < round_num <= len(events):
+            target_location = events[round_num - 1].get("location")
+            if target_location:
+                for prev_year in range(year - 1, year - 4, -1):
+                    prev_schedule = get_json(f"seasons/{prev_year}/schedule.json")
+                    if not prev_schedule:
+                        import fastf1
+                        try:
+                            fastf1.get_event_schedule(prev_year)
+                        except Exception:
+                            pass
+                        continue
+                    
+                    for prev_event in prev_schedule.get("events", []):
+                        if prev_event.get("location") == target_location:
+                            prev_round = prev_event.get("round_number")
+                            for alt_type in ("R", "Q", "FP1", "FP2", "FP3"):
+                                data = get_json(f"sessions/{prev_year}/{prev_round}/{alt_type}/track.json")
+                                if data is not None:
+                                    logger.info(f"Track fallback: using {prev_year}/{prev_round}/{alt_type} ({target_location})")
+                                    return data
+
+                # 4. Search local glob fallback
+                import glob
+                import json
+                for path in glob.glob("backend/data/sessions/*/*/*/track.json"):
+                    try:
+                        with open(path, "r", encoding="utf-8") as f:
+                            td = json.load(f)
+                            if td.get("circuit_name") == target_location or td.get("circuit") == target_location:
+                                logger.info(f"Track glob fallback: using local {path} for {target_location}")
+                                return td
+                    except Exception:
+                        pass
+                for path in glob.glob("data/sessions/*/*/*/track.json"):
+                    try:
+                        with open(path, "r", encoding="utf-8") as f:
+                            td = json.load(f)
+                            if td.get("circuit_name") == target_location or td.get("circuit") == target_location:
+                                logger.info(f"Track glob fallback: using local {path} for {target_location}")
+                                return td
+                    except Exception:
+                        pass
 
     return None
 
@@ -356,9 +481,15 @@ async def live_websocket(
                                 session.skip_forward(skip_seconds)
                             elif cmd.get("command") == "seek":
                                 target_time = float(cmd.get("time", 0))
-                                if session._replayer and session._replayer._messages:
+                                if session._mode == "signalr":
+                                    session.seek(target_time)
+                                elif session._replayer and session._replayer._messages:
                                     first_ts = session._replayer._messages[0].timestamp
                                     session.seek(first_ts + target_time)
+                            elif cmd.get("command") == "pause":
+                                is_paused = bool(cmd.get("paused", False))
+                                speed = float(cmd.get("speed", 1.0))
+                                session.set_playback(is_paused, speed)
 
                     except Exception:
                         pass

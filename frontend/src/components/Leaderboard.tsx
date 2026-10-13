@@ -128,10 +128,10 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
   const intervals = isRace && showInterval ? computeIntervals(sorted) : null;
 
   return (
-    <div ref={containerRef} className={`bg-f1-card border-f1-border h-full ${compact ? "overflow-y-auto" : "overflow-y-auto sm:overflow-hidden"}`}>
+    <div ref={containerRef} className={`bg-white/95 backdrop-blur-xl border-r border-gray-200 h-full shadow-lg ${compact ? "overflow-y-auto" : "overflow-y-auto sm:overflow-hidden"}`}>
       <div ref={contentRef} style={{ transform: `scale(${scale})`, transformOrigin: "top left", width: `${100 / scale}%` }}>
 
-      <div className="divide-y divide-f1-border/50">
+      <div className="divide-y divide-gray-100">
         {sorted.map((drv) => {
           const isHighlighted = highlightedDrivers.includes(drv.abbr);
           const isLeader = drv.position === 1;
@@ -164,7 +164,7 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
               "McLaren": "border-l-orange-500",
               "Aston Martin": "border-l-green-700",
               "Williams": "border-l-blue-500",
-              "Haas F1 Team": "border-l-gray-100",
+              "Haas F1 Team": "border-l-gray-300",
               "Kick Sauber": "border-l-green-500",
               "Alpine": "border-l-pink-500",
               "RB": "border-l-blue-400"
@@ -176,46 +176,62 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
             <button
               key={drv.abbr}
               onClick={() => onDriverClick(drv.abbr)}
-              className={`w-full flex items-center px-1 sm:px-2 py-1 transition-all duration-200 ease-out text-left border-l-[3px] border-transparent hover:bg-white/5 hover:${teamBorderColor} ${
-                isHighlighted ? `bg-white/10 ${teamBorderColor}` : ""
+              className={`w-full flex items-center px-1 sm:px-2 py-1.5 transition-all duration-150 ease-out text-left border-l-[3px] hover:bg-gray-50/80 ${
+                isHighlighted ? `bg-gray-50` : "border-transparent bg-white"
               } ${drv.no_timing ? "opacity-40" : drv.knocked_out ? "opacity-50" : ""}`}
+              style={{
+                borderLeftColor: isHighlighted ? drv.color : 'transparent',
+                ...(isHighlighted ? { boxShadow: `inset 4px 0 12px -4px ${drv.color}` } : {})
+              }}
             >
-              {/* Position - 20px mobile, 24px desktop */}
+              {/* Position - 24px */}
               {isLeader ? (
-                <span className="w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded bg-f1-red text-white text-[14px] sm:text-sm font-extrabold flex-shrink-0">
+                <span className="w-6 h-6 flex items-center justify-center rounded bg-f1-red text-white text-[17px] font-black flex-shrink-0 shadow-sm">
                   {drv.position}
                 </span>
               ) : (
-                <span className="w-5 sm:w-6 text-[14px] sm:text-sm font-extrabold text-white text-right flex-shrink-0">
+                <span className="w-6 text-[17px] font-black text-[#1a1f2b] text-right flex-shrink-0">
                   {drv.position ?? "-"}
                 </span>
               )}
 
-              {/* Team color bar - 4px + 4px margin */}
+              {/* Team color bar */}
               <span
-                className="w-1 h-6 rounded-sm flex-shrink-0 mx-1"
+                className="w-1.5 h-7 rounded-sm flex-shrink-0 mx-1.5 shadow-sm"
                 style={{ backgroundColor: drv.color }}
               />
 
-              {/* Team abbreviation - 28px */}
+              {/* Team abbreviation */}
               {settings.showTeamAbbr && !mobileTeamAbbrHidden && (
-                <span className="w-7 text-[10px] font-bold text-f1-muted flex-shrink-0" title="Team">
+                <span className="w-8 text-[11px] font-bold text-gray-500 flex-shrink-0" title="Team">
                   {TEAM_ABBR[drv.team] || drv.team?.slice(0, 3).toUpperCase()}
                 </span>
               )}
 
-              {/* Driver abbreviation - 30px */}
-              <span className="w-[30px] flex items-center gap-1 text-sm font-extrabold text-white flex-shrink-0">
+              {/* Driver abbreviation */}
+              <span className="w-[60px] flex items-center gap-1 text-[18px] font-black tracking-wider text-[#1a1f2b] flex-shrink-0">
                 {drv.abbr}
                 {drv.flag === "investigation" && (
-                  <span className="w-3 h-3 bg-yellow-400 rounded-full flex items-center justify-center text-black text-[8px] font-bold" title="Bajo investigación">
-                    !
-                  </span>
+                  <div className="relative group/tooltip flex items-center justify-center ml-0.5">
+                    <span className="w-3 h-3 bg-yellow-400 rounded-full flex items-center justify-center text-[#1a1f2b] text-[8px] font-bold cursor-help shadow-sm">
+                      !
+                    </span>
+                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 opacity-0 group-hover/tooltip:opacity-100 transition-all duration-300 pointer-events-none z-50 whitespace-nowrap bg-white text-[#1a1f2b] text-[10px] font-medium px-3 py-1.5 rounded-md border border-gray-200 shadow-lg translate-y-1 group-hover/tooltip:translate-y-0">
+                       Bajo investigación (Race Control)
+                       <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-white border-b border-r border-gray-200 rotate-45" />
+                    </div>
+                  </div>
                 )}
                 {drv.flag === "penalty" && (
-                  <span className="w-3 h-3 bg-red-600 rounded-full flex items-center justify-center text-white text-[8px] font-bold" title="Penalización">
-                    P
-                  </span>
+                  <div className="relative group/tooltip flex items-center justify-center ml-0.5">
+                    <span className="w-3 h-3 bg-red-600 rounded-full flex items-center justify-center text-white text-[8px] font-bold cursor-help shadow-sm">
+                      P
+                    </span>
+                    <div className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 opacity-0 group-hover/tooltip:opacity-100 transition-all duration-300 pointer-events-none z-50 whitespace-nowrap bg-white text-[#1a1f2b] text-[10px] font-medium px-3 py-1.5 rounded-md border border-gray-200 shadow-lg translate-y-1 group-hover/tooltip:translate-y-0">
+                       Penalización aplicada
+                       <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-white border-b border-r border-gray-200 rotate-45" />
+                    </div>
+                  </div>
                 )}
               </span>
 
@@ -223,8 +239,8 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
               {!isRace && (
                 <span className="w-[13px] ml-2 -mr-1 flex-shrink-0 flex items-center justify-center">
                   {drv.in_pit && (
-                    <span className="w-[13px] h-[13px] bg-white rounded-[2px] flex items-center justify-center">
-                      <span className="text-[8px] font-extrabold text-black leading-none">P</span>
+                    <span className="w-[13px] h-[13px] bg-[#1a1f2b] rounded-[2px] flex items-center justify-center">
+                      <span className="text-[8px] font-extrabold text-white leading-none">P</span>
                     </span>
                   )}
                 </span>
@@ -235,14 +251,14 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
               <span className="w-6 flex-shrink-0 text-center" title="Grid position change">
                 {!drv.retired && currentTime >= 10 && (
                   drv.pit_start ? (
-                    <span className="text-[10px] font-bold text-white">Pit</span>
+                    <span className="text-[10px] font-bold text-gray-500">Pit</span>
                   ) : drv.grid_position != null && drv.position != null && (() => {
                     const delta = drv.grid_position - drv.position;
                     if (delta > 0) return (
-                      <span className="text-[10px] font-bold text-green-400">▲{delta}</span>
+                      <span className="text-[10px] font-bold text-green-600">▲{delta}</span>
                     );
                     if (delta < 0) return (
-                      <span className="text-[10px] font-bold text-red-400">▼{Math.abs(delta)}</span>
+                      <span className="text-[10px] font-bold text-red-500">▼{Math.abs(delta)}</span>
                     );
                     return null;
                   })()
@@ -253,27 +269,16 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
               {/* Flags - 16px */}
               <span className={`w-4 flex-shrink-0 flex items-center justify-center ${!isRace ? "ml-1.5" : ""}`}>
                 {isRace && drv.has_fastest_lap && (
-                  <svg className="w-3.5 h-3.5 text-purple-500" viewBox="0 0 24 24" fill="currentColor">
+                  <svg className="w-3.5 h-3.5 text-purple-600" viewBox="0 0 24 24" fill="currentColor">
                     <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" />
                     <path d="M12 6v7l4.5 2.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                  </svg>
-                )}
-                {drv.flag === "investigation" && (
-                  <svg className="w-3.5 h-3.5 text-orange-400" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M12 2L2 22h20L12 2zm0 6v7m0 2v2" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
-                  </svg>
-                )}
-                {drv.flag === "penalty" && (
-                  <svg className="w-3.5 h-3.5 text-red-500" viewBox="0 0 24 24" fill="currentColor">
-                    <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeWidth="2.5" />
-                    <path d="M12 7v6m0 3v1" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
                   </svg>
                 )}
               </span>
 
               {/* Best lap time (practice/qualifying only) */}
               {!isRace && settings.showBestLapTime && (
-                <span className={`w-[60px] flex-shrink-0 text-xs font-bold text-right ${drv.position === 1 ? "text-purple-400" : "text-white"}`} title="Best lap time">
+                <span className={`w-[60px] flex-shrink-0 text-[15px] font-bold text-right ${drv.position === 1 ? "text-purple-600" : "text-[#1a1f2b]"}`} title="Best lap time">
                   {drv.retired ? "Out" : (drv.best_lap_time || (drv.position === 1 ? formatGap(drv.gap) : null) || "")}
                 </span>
               )}
@@ -285,32 +290,32 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
                     className="w-14 flex-shrink-0 flex justify-start"
                     onClick={(e) => { e.stopPropagation(); setShowInterval(!showInterval); }}
                   >
-                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-white/10 text-white cursor-pointer hover:bg-white/20 transition-colors">
+                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-gray-200 text-gray-700 cursor-pointer hover:bg-gray-300 transition-colors">
                       {showInterval ? "Interval" : "Leader"}
                     </span>
                   </span>
                 ) : isRace ? (
                   drv.in_pit && !drv.retired ? (
-                    <span className="w-14 flex-shrink-0 text-left text-yellow-400" title="In pit lane">
-                      <span className="text-xs font-bold">PIT</span>
+                    <span className="w-14 flex-shrink-0 text-left text-yellow-600" title="In pit lane">
+                      <span className="text-[15px] font-bold">PIT</span>
                       {drv.pit_time != null && (
                         <span className="text-[9px] font-bold ml-0.5 tabular-nums">{drv.pit_time.toFixed(1)}s</span>
                       )}
                     </span>
                   ) : (
-                    <span title={showInterval ? "Interval to car ahead" : "Gap to leader"} className={`w-14 flex-shrink-0 text-xs font-bold text-left tabular-nums ${
+                    <span title={showInterval ? "Interval to car ahead" : "Gap to leader"} className={`w-14 flex-shrink-0 text-[15px] font-bold text-left tabular-nums ${
                       showInterval && settings.highlightClose && displayGap && (() => {
                           const val = parseFloat(displayGap.replace("+", ""));
                           return !isNaN(val) && val > 0 && val < 1;
                         })()
-                        ? "text-green-400"
-                        : "text-f1-muted"
+                        ? "text-green-600"
+                        : "text-gray-500"
                     }`}>
                       {displayGap}
                     </span>
                   )
                 ) : (
-                  <span className={`w-14 flex-shrink-0 text-xs font-bold text-left tabular-nums text-f1-muted ml-3 sm:ml-2`} title="Gap to leader">
+                  <span className={`w-14 flex-shrink-0 text-[15px] font-bold text-left tabular-nums text-gray-500 ml-3 sm:ml-2`} title="Gap to leader">
                     {displayGap}
                   </span>
                 )
@@ -318,40 +323,54 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
 
               {/* Last lap time */}
               {settings.showLastLapTime && (() => {
-                const driverLaps = lapData?.get(drv.abbr);
-                if (!driverLaps) return (
-                  <span className="w-[50px] sm:w-[60px] flex-shrink-0" />
-                );
-
-                // Find the driver's most recent completed lap up to the current replay time
                 let lastLapTime: string | null = null;
-                let lastLapNum = 0;
-                if (isRace) {
-                  // Races: use global currentLap
-                  for (let l = (currentLap || 0); l >= 1; l--) {
-                    const entry = driverLaps.get(l);
-                    if (entry) { lastLapTime = entry.time; lastLapNum = l; break; }
-                  }
+                let colorClass = "text-gray-500";
+                
+                // Use new `timing` object from F1 feed if available (Live mode)
+                if ((drv as any).timing?.last_lap) {
+                   lastLapTime = (drv as any).timing.last_lap.value;
+                   if ((drv as any).timing.last_lap.ob) colorClass = "text-purple-600";
+                   else if ((drv as any).timing.last_lap.pb) colorClass = "text-green-600";
+                   else colorClass = "text-[#1a1f2b]";
                 } else {
-                  // Practice/qualifying: use timestamp to find laps completed before current time
-                  for (const [lapNum, entry] of driverLaps) {
-                    if (entry.completedAt !== null && entry.completedAt <= currentTime && lapNum > lastLapNum) {
-                      lastLapTime = entry.time;
-                      lastLapNum = lapNum;
-                    }
-                  }
+                   // Fallback to Replay mode calculation
+                   const driverLaps = lapData?.get(drv.abbr);
+                   if (!driverLaps) return <span className="w-[50px] sm:w-[60px] flex-shrink-0" />;
+
+                   let lastLapNum = 0;
+                   if (isRace) {
+                     for (let l = (currentLap || 0); l >= 1; l--) {
+                       const entry = driverLaps.get(l);
+                       if (entry) { lastLapTime = entry.time; lastLapNum = l; break; }
+                     }
+                   } else {
+                     for (const [lapNum, entry] of driverLaps) {
+                       if (entry.completedAt !== null && entry.completedAt <= currentTime && lapNum > lastLapNum) {
+                         lastLapTime = entry.time;
+                         lastLapNum = lapNum;
+                       }
+                     }
+                   }
+
+                   if (lastLapTime && lastLapNum >= 2 && !drv.retired) {
+                      colorClass = lapColorClass(lastLapTime, drv.abbr, lapData, currentTime, currentLap || 0, isRace, drv.has_fastest_lap);
+                      if (colorClass.includes("text-white")) colorClass = colorClass.replace("text-white", "text-[#1a1f2b]");
+                      if (colorClass.includes("text-purple-400")) colorClass = colorClass.replace("text-purple-400", "text-purple-600");
+                      if (colorClass.includes("text-green-400")) colorClass = colorClass.replace("text-green-400", "text-green-600");
+                      if (colorClass.includes("text-yellow-400")) colorClass = colorClass.replace("text-yellow-400", "text-[#1a1f2b]"); // Yellow text is hard to read on white
+                   } else {
+                      lastLapTime = null;
+                   }
                 }
 
-                if (!lastLapTime || lastLapNum < 2 || drv.retired) return (
-                  <span className="w-[50px] sm:w-[60px] flex-shrink-0 text-[11px] sm:text-xs text-right tabular-nums text-f1-muted" title="Last lap time">
+                if (!lastLapTime || drv.retired) return (
+                  <span className="w-[50px] sm:w-[60px] flex-shrink-0 text-xs sm:text-[15px] text-right tabular-nums text-gray-400" title="Last lap time">
                     {drv.retired ? "" : (lastLapTime || "")}
                   </span>
                 );
 
-                const color = lapColorClass(lastLapTime, drv.abbr, lapData, currentTime, currentLap || 0, isRace, drv.has_fastest_lap);
-
                 return (
-                  <span className={`w-[50px] sm:w-[60px] flex-shrink-0 text-[11px] sm:text-xs text-right tabular-nums ${color}`} title="Last lap time">
+                  <span className={`w-[50px] sm:w-[60px] flex-shrink-0 text-xs sm:text-[15px] text-right tabular-nums font-bold ${colorClass}`} title="Last lap time">
                     {lastLapTime}
                   </span>
                 );
@@ -375,7 +394,7 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
                         return (
                           <span
                             key={idx}
-                            className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold leading-none border bg-black z-10"
+                            className="w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold leading-none border bg-black z-10 shadow-sm"
                             style={{ borderColor: hColor, color: hColor }}
                           >
                             {hLabel}
@@ -384,7 +403,7 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
                       })}
                     </div>
                   ) : drv.pit_stops > 0 ? (
-                    <span className="w-5 h-5 border border-f1-muted rounded-sm flex items-center justify-center text-[10px] font-extrabold text-white">
+                    <span className="w-5 h-5 border border-gray-300 bg-gray-50 rounded-sm flex items-center justify-center text-[10px] font-extrabold text-[#1a1f2b]">
                       {drv.pit_stops}
                     </span>
                   ) : null}
@@ -398,10 +417,10 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
                     <>
                       <span className={`flex items-center gap-0.5 text-[10px] font-bold ${
                         settings.showPitConfidence && drv.pit_prediction_margin != null
-                          ? drv.pit_prediction_margin < 1 ? "text-red-400"
-                          : drv.pit_prediction_margin < 2.5 ? "text-yellow-400"
-                          : "text-f1-muted"
-                          : "text-f1-muted"
+                          ? drv.pit_prediction_margin < 1 ? "text-red-500"
+                          : drv.pit_prediction_margin < 2.5 ? "text-yellow-600"
+                          : "text-gray-500"
+                          : "text-gray-500"
                       }`}>
                         <svg className="w-4 h-4 opacity-70 -scale-y-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M9 14l-4-4 4-4" />
@@ -419,17 +438,17 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
                 <span className="w-9 flex-shrink-0 flex flex-col items-end leading-tight" title="Pit gaps: ↑ gap ahead, ↓ gap behind">
                   {drv.pit_prediction != null && (
                     <>
-                      <span className="text-[8px] font-bold text-f1-muted">
+                      <span className="text-[8px] font-bold text-gray-500">
                         {drv.pit_prediction_free_air != null
                           ? `↑${drv.pit_prediction_free_air.toFixed(1)}s`
                           : "—"}
                       </span>
                       <span className={`text-[8px] font-bold ${
                         settings.showPitConfidence && drv.pit_prediction_margin != null
-                          ? drv.pit_prediction_margin < 1 ? "text-red-400"
-                          : drv.pit_prediction_margin < 2.5 ? "text-yellow-400"
-                          : "text-f1-muted"
-                          : "text-f1-muted"
+                          ? drv.pit_prediction_margin < 1 ? "text-red-500"
+                          : drv.pit_prediction_margin < 2.5 ? "text-yellow-600"
+                          : "text-gray-500"
+                          : "text-gray-500"
                       }`}>
                         {drv.pit_prediction_margin != null
                           ? `↓${drv.pit_prediction_margin.toFixed(1)}s`
@@ -463,25 +482,50 @@ export default function Leaderboard({ drivers, highlightedDrivers, onDriverClick
                 </span>
               )}
 
-              {/* Current tyre compound - 20px */}
+              {/* Tyre Stack / Current tyre compound - 20px */}
               {settings.showTyreType && (
-                <span className="w-5 flex-shrink-0 flex items-center justify-center ml-1" title="Current tyre">
-                  <span
-                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-extrabold leading-none border-2"
-                    style={{
-                      borderColor: tyreColor || "#555",
-                      color: tyreColor || "#555",
-                      backgroundColor: "transparent",
-                    }}
-                  >
-                    {tyreLabel || ""}
-                  </span>
+                <span className="w-5 flex-shrink-0 flex items-center justify-center ml-1 relative group" title="Tyre history">
+                  <div className="absolute right-0 flex items-center justify-end space-x-[-8px] group-hover:space-x-1 transition-all duration-300 ease-out z-20">
+                    {drv.tyre_history && drv.tyre_history.length > 0 ? (
+                      drv.tyre_history.map((histComp, idx) => {
+                        const histColor = TYRE_COLORS[histComp] || "#888";
+                        const histLabel = TYRE_SHORT[histComp] || "?";
+                        const isLast = idx === drv.tyre_history.length - 1;
+                        return (
+                          <div 
+                            key={idx} 
+                            className={`relative w-[15px] h-[15px] rounded-full flex-shrink-0 flex items-center justify-center transition-all duration-300 ${!isLast ? 'group-hover:scale-100 scale-95 opacity-90 group-hover:opacity-100' : 'z-10 shadow-lg'}`}
+                            style={{ 
+                              background: `radial-gradient(circle at 35% 35%, #444 0%, #111 60%, #000 100%)`,
+                              boxShadow: `inset 0 0 3px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.6)`,
+                              border: `1.5px solid ${histColor}`
+                            }}
+                          >
+                            <span className="text-[7.5px] font-extrabold leading-none drop-shadow-md" style={{ color: histColor }}>{histLabel}</span>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      compound && (
+                          <div 
+                            className="relative w-[15px] h-[15px] rounded-full flex-shrink-0 flex items-center justify-center z-10 shadow-lg"
+                            style={{ 
+                              background: `radial-gradient(circle at 35% 35%, #444 0%, #111 60%, #000 100%)`,
+                              boxShadow: `inset 0 0 3px rgba(0,0,0,0.8), 0 2px 4px rgba(0,0,0,0.6)`,
+                              border: `1.5px solid ${tyreColor || "#555"}`
+                            }}
+                          >
+                            <span className="text-[7.5px] font-extrabold leading-none drop-shadow-md" style={{ color: tyreColor || "#555" }}>{tyreLabel}</span>
+                          </div>
+                      )
+                    )}
+                  </div>
                 </span>
               )}
 
               {/* Tyre age - 20px */}
               {settings.showTyreAge && (
-                <span className="w-5 flex-shrink-0 text-xs font-extrabold text-white text-right" title="Tyre age (laps)">
+                <span className="w-5 flex-shrink-0 text-xs font-extrabold text-[#1a1f2b] text-right" title="Tyre age (laps)">
                   {drv.tyre_life ?? ""}
                 </span>
               )}

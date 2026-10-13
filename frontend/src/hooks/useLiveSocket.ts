@@ -28,14 +28,9 @@ export function useLiveSocket(
   year: number,
   round: number,
   sessionType: string = "R",
-  speed: number = 10,
-  delayOffset: number = 0,
+  speed: number = 1,
 ) {
   const wsRef = useRef<WebSocket | null>(null);
-  const bufferRef = useRef<BufferedFrame[]>([]);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const delayRef = useRef(delayOffset);
-  delayRef.current = delayOffset;
   const hasShownFirstFrame = useRef(false);
   const [state, setState] = useState<LiveState>({
     connected: false,
@@ -49,55 +44,49 @@ export function useLiveSocket(
     error: null,
   });
 
-  // Delay processing: buffer frames and release them after |delayOffset| seconds.
-  // Any non-zero value (positive or negative) activates buffering.
-  const absDelay = Math.abs(delayOffset);
+  // Reset state when session changes
   useEffect(() => {
-    if (absDelay === 0) {
-      bufferRef.current = [];
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-      return;
+    setState({
+      connected: false,
+      ready: false,
+      loading: true,
+      totalTime: 0,
+      frame: null,
+      rcMessages: [],
+      finished: false,
+      sessionEnded: false,
+      error: null,
+    });
+    hasShownFirstFrame.current = false;
+  }, [year, round, sessionType]);
+
+  // Send speed / pause commands dynamically without reconnecting
+  useEffect(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        command: 'pause',
+        paused: speed === 0,
+        speed: speed === 0 ? 1 : speed
+      }));
     }
-
-    const delayMs = absDelay * 1000;
-    timerRef.current = setInterval(() => {
-      const now = Date.now();
-      const buffer = bufferRef.current;
-      // Find the latest frame that's been buffered long enough
-      let releaseIdx = -1;
-      for (let i = buffer.length - 1; i >= 0; i--) {
-        if (now - buffer[i].receivedAt >= delayMs) {
-          releaseIdx = i;
-          break;
-        }
-      }
-      if (releaseIdx >= 0) {
-        const { frame, rcMessages } = buffer[releaseIdx];
-        // Remove released and older frames
-        bufferRef.current = buffer.slice(releaseIdx + 1);
-        setState((s) => ({ ...s, frame, rcMessages }));
-      }
-    }, 200);
-
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    };
-  }, [absDelay]);
+  }, [speed]);
 
   useEffect(() => {
     let aborted = false;
-    const url = wsUrl(`/ws/live/${year}/${round}?type=${sessionType}&speed=${speed}`);
+    const url = wsUrl(`/ws/live/${year}/${round}?type=${sessionType}`);
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      if (!aborted) setState((s) => ({ ...s, connected: true }));
+      if (!aborted) {
+        setState((s) => ({ ...s, connected: true }));
+        // Ensure backend matches our current speed state on connect
+        ws.send(JSON.stringify({
+          command: 'pause',
+          paused: speed === 0,
+          speed: speed === 0 ? 1 : speed
+        }));
+      }
     };
 
     ws.onmessage = (event) => {
@@ -129,18 +118,8 @@ export function useLiveSocket(
           };
           const rcMessages: RCMessage[] = msg.rc_messages || [];
 
-          if (delayRef.current !== 0) {
-            // Show first frame immediately so the user sees data right away,
-            // then buffer subsequent frames for delayed release
-            if (!hasShownFirstFrame.current) {
-              hasShownFirstFrame.current = true;
-              setState((s) => ({ ...s, frame, rcMessages }));
-            }
-            bufferRef.current.push({ frame, rcMessages, receivedAt: Date.now() });
-          } else {
-            // No delay - show immediately
-            setState((s) => ({ ...s, frame, rcMessages }));
-          }
+          // No frontend delay buffering - backend DVR handles it
+          setState((s) => ({ ...s, frame, rcMessages }));
           break;
         }
         case "finished":
