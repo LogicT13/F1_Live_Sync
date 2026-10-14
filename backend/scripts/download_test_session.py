@@ -14,7 +14,9 @@ import sys
 import time
 import urllib.request
 import urllib.error
+import threading
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import fastf1
 
@@ -49,16 +51,38 @@ INIT_TOPICS = [
 
 def _fetch(url: str, dest: Path) -> int:
     req = urllib.request.Request(url, headers={"User-Agent": "f1timing-test-downloader/1.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = resp.read()
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            return 0
-        raise
-    dest.write_bytes(data)
-    return len(data)
+    retries = 3
+    backoff = 1.0
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = resp.read()
+                dest.write_bytes(data)
+                return len(data)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                return 0
+            if e.code in (429, 500, 502, 503, 504) and attempt < retries - 1:
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            raise
+        except urllib.error.URLError as e:
+            if attempt < retries - 1:
+                time.sleep(backoff)
+                backoff *= 2
+                continue
+            raise
+    return 0
 
+def fetch_topic(base_url, out_dir, topic, ext, kind):
+    url = f"{base_url}{topic}{ext}"
+    dest = out_dir / f"{topic}{ext}"
+    try:
+        n = _fetch(url, dest)
+        return topic, ext, kind, n, None
+    except Exception as e:
+        return topic, ext, kind, 0, e
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -85,38 +109,29 @@ def main() -> int:
 
     total_bytes = 0
     skipped = []
+    lock = threading.Lock()
 
+    tasks = []
     for topic in STREAM_TOPICS:
-        url = f"{base_url}{topic}.jsonStream"
-        dest = out_dir / f"{topic}.jsonStream"
-        try:
-            n = _fetch(url, dest)
-        except Exception as e:
-            print(f"  {topic:<22} ERROR  {e}")
-            continue
-        if n == 0:
-            skipped.append(topic + ".jsonStream")
-            print(f"  {topic:<22} 404")
-        else:
-            total_bytes += n
-            print(f"  {topic:<22} {n / 1024:>10.1f} KB  stream")
-        time.sleep(0.1)
-
+        tasks.append((base_url, out_dir, topic, ".jsonStream", "stream"))
     for topic in INIT_TOPICS:
-        url = f"{base_url}{topic}.json"
-        dest = out_dir / f"{topic}.json"
-        try:
-            n = _fetch(url, dest)
-        except Exception as e:
-            print(f"  {topic:<22} ERROR  {e}")
-            continue
-        if n == 0:
-            skipped.append(topic + ".json")
-            print(f"  {topic:<22} 404")
-        else:
-            total_bytes += n
-            print(f"  {topic:<22} {n / 1024:>10.1f} KB  init")
-        time.sleep(0.1)
+        tasks.append((base_url, out_dir, topic, ".json", "init"))
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {
+            executor.submit(fetch_topic, *task): task for task in tasks
+        }
+        for future in as_completed(futures):
+            topic, ext, kind, n, err = future.result()
+            with lock:
+                if err:
+                    print(f"  {topic:<22} ERROR  {err}")
+                elif n == 0:
+                    skipped.append(topic + ext)
+                    print(f"  {topic:<22} 404")
+                else:
+                    total_bytes += n
+                    print(f"  {topic:<22} {n / 1024:>10.1f} KB  {kind}")
 
     print()
     print(f"Total: {total_bytes / 1024 / 1024:.2f} MB across {len(STREAM_TOPICS) + len(INIT_TOPICS) - len(skipped)} files")
