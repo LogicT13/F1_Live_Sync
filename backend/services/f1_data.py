@@ -23,8 +23,10 @@ try:
 except OSError:
     # Fallback to temp dir if configured path is not writable
     import tempfile
-    CACHE_DIR = os.path.join(tempfile.gettempdir(), "fastf1-cache")
-    os.makedirs(CACHE_DIR, exist_ok=True)
+    import atexit
+    import shutil
+    CACHE_DIR = tempfile.mkdtemp(prefix="fastf1-cache-")
+    atexit.register(lambda: shutil.rmtree(CACHE_DIR, ignore_errors=True))
     fastf1.Cache.enable_cache(CACHE_DIR)
 
 # In-memory cache for loaded sessions (with lock to prevent concurrent duplicate loads)
