@@ -132,6 +132,13 @@ if STATIC_DIR.exists():
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         """Serve frontend static files with SPA fallback."""
+        try:
+            target_path = (STATIC_DIR / full_path).resolve()
+            if not target_path.is_relative_to(STATIC_DIR.resolve()):
+                return JSONResponse(status_code=404, content={"detail": "Not found"})
+        except (ValueError, OSError):
+            return JSONResponse(status_code=404, content={"detail": "Not found"})
+
         # Try exact file match
         file_path = STATIC_DIR / full_path
         if file_path.is_file():
